@@ -24,18 +24,12 @@ fight → win/lose — works without breaking.
   smart unit AI/stances/commands, and a balanced, sim-verified difficulty ladder.
   Latest `npm run sim` (30 runs/cell): Easy 100/100/100, Normal 60/60/63, Hard 30/27/43 (M1/M2/M3
   player win%), no <90s stomps, passive player loses 100%.
-- **Last done:** Built the full game on the data-driven architecture: base construction
-  (build menu + placement + power + tech prereqs), unit production (infantry/harvester/tank/
-  aircraft, power-scaled queues), selection + real-time command + A* pathfinding + projectile
-  combat + death, enemy AI (build order → train → attack waves), fog of war, sidebar/minimap UI,
-  and a 3-mission escalating campaign with win/lose. Verified by driving the fixed-timestep sim
-  headlessly: economy climbs, AI builds 5→11 buildings & 5→24 units and overruns a passive
-  player (lose fires at t=73s); a scripted player bot places structures, produces units, and
-  damages the enemy; victory branch confirmed (enemy buildings→0 ⇒ 'won'); all 3 missions
-  construct + render with no exceptions. `tsc --noEmit` clean, `npm run build` clean (22 modules).
-- **Next action:** None required — feature-complete. Optional polish if desired: audio
-  (WebAudio sfx), **control groups (Ctrl+1–9)** [user deferred this round], rally points,
-  unit veterancy, more missions, balance passes, perf pass if unit counts grow large.
+- **Last done:** Added `play.bat` — a Windows double-click launcher that checks for Node/npm,
+  runs `npm install` on first use, then starts the Vite dev server with `--open` (auto-opens
+  browser). Committed and pushed to GitHub. Session complete.
+- **Next action:** None required — feature-complete. Optional next features (not started):
+  **AI personalities** (Turtle/Rusher/Mechanized/Economist archetypes, verified via sim harness),
+  audio (WebAudio sfx), control groups (Ctrl+1–9), unit veterancy, more missions.
 
 > Run it: `npm run dev` → http://localhost:5173/ — focus the tab to play.
 > Live state is on `window.game` in the console (e.g. `game.world`) for debugging.
@@ -109,6 +103,9 @@ fight → win/lose — works without breaking.
   Revisit if/when bumping Vite intentionally.
 
 ## Session log (terse; newest on top)
+- **2026-06-13** — Added `play.bat` Windows launcher (checks npm, installs deps on first run,
+  opens browser via `vite --open`). Updated PROJECT_MEMORY. Committed + pushed to GitHub.
+  Discussed AI personality archetypes (Turtle/Rusher/Mechanized/Economist) — not yet started.
 - **2026-06-13** — Rally points + balance/difficulty overhaul, run via a multi-agent Workflow
   (9 specialist agents: design → implement → verify → fix) plus my own verification pass.
   Added: **rally points** (Building.rallyX/Y, World.setRally/clearRally, completeUnit routes
