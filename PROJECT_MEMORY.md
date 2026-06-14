@@ -22,14 +22,35 @@ fight → win/lose — works without breaking.
 ## Status (the cross-session pointer — read this first, update at session end)
 - **▶ Current phase:** COMPLETE — full 3-mission RTS with rally points, difficulty levels,
   smart unit AI/stances/commands, **armor/damage-type rock-paper-scissors combat, anti-air
-  discipline, an expanded unit roster (Rocket/Scout/Artillery), and Tech upgrades**, all on a
-  re-verified difficulty ladder.
+  discipline, an expanded unit roster (Rocket/Scout/Artillery), Tech upgrades, and a procedural
+  audio layer**, all on a re-verified difficulty ladder.
   Latest `npm run sim` (30-40 runs/cell, after the smart-harvester rebalance): **Easy ~100/100/100,
   Normal ~60/46/40, Hard ~75/52/22** (M1/M2/M3 player win%, averaged over 2 noisy confirmation
   runs) — a clean difficulty *ramp* (M1 easiest → M3 the hard finale), no 0%/100% cells, passive
   loses 100%. The sim bot is a LOWER BOUND, especially on M3, since it never micros Artillery
   (which the M3 brief advises) — a human does better. The surface is noisy; read at ≥30 runs.
-- **Last done (newest):** **Label tags + smarter harvesters + explosion advice (+ a big rebalance).**
+- **Last done (newest):** **M13 — Audio layer (procedural Web Audio, zero asset files).** New
+  `src/core/audio.ts` `audio` singleton: lazy `AudioContext` (unlocked on first user gesture →
+  autoplay policy), master gain + compressor, per-cue throttle + 16-voice cap, optional stereo
+  pan, and **mute persisted to `localStorage`** (`M` key or a clickable top-bar speaker glyph).
+  ~17 cues are SYNTHESIZED at runtime (oscillators + filtered noise) — `select/move/place/
+  build-start/build-ready/unit-ready/cancel/upgrade`, `fire-{gun,cannon,rocket,shell}`,
+  `explosion/explosion-big/under-attack/victory/defeat` — mirroring the renderer's procedural-FX
+  ethos (no files to ship, GitHub Pages stays a pure static bundle). **Wiring keeps the sim pure:**
+  `world.ts` pushes plain `{name,x,y}` to a new `audioEvents` queue via `emit()`, guarded by
+  `AUDIO_CAPTURE = typeof window !== 'undefined'` so the **headless sim never accumulates or imports
+  audio** (zero balance/overhead — proven). `game.ts` drains the queue each `frame()`, camera-gating
+  `fire-*`/`explosion*` to on-screen shots + panning by screen-x; UI cues (select/move/place/build/
+  cancel/upgrade) fire directly in the input handlers; victory/defeat stinger on the win/lose edge.
+  `ui.ts` got the speaker toggle (`hitTestTopBar` + `{type:'mute'}` + a `muted` draw param). Verified:
+  clean `build` (+0.12 kB); **30-run sim ladder = clean ramp, unchanged by construction** (Easy
+  97/100/100, Normal 57/50/30, Hard 87/60/53, passive 100% loss — M3 spread is the documented noise
+  band); live E2E via `window.game`/`window.audio` — AudioContext unlocks (running@48kHz), the full
+  `world.emit → game drain → audio.play` pipe fires real `fire-gun/fire-rocket/explosion/under-attack`
+  with stereo pan + queue drains to 0/frame (no leak), all UI cues fire, `M`+button mute toggles and
+  persists, victory/defeat stingers fire, **no console errors**. (Screenshot timed out = the known
+  collapsed-tab/rAF artifact, not a bug.) **Committed + pushed to origin/main.**
+- **Prior:** **Label tags + smarter harvesters + explosion advice (+ a big rebalance).**
   (1) **Building name tags** — `drawBuilding` draws a small faction-tinted name pill above each
   visible building (off the sprite art; replaced the old in-sprite text). (2) **Smarter harvesters**
   — when a tile runs dry they keep mining spice within a `HARVEST_LEASH` (4 tiles ≈ sight) and only
@@ -93,9 +114,10 @@ fight → win/lose — works without breaking.
   (Depleted Rounds / Composite Armor / Turbo Drives / Salvage Logistics) hosted at the Radar, and
   the enemy AI now *gradually* fields Rockets/Scouts and buys one upgrade. Re-tuned the difficulty
   table + per-mission economy to restore a healthy ladder. (Full detail in the session log.)
-- **Next action:** Pick from the **▼ Development plan (next session)** in "Open tasks / current
-  priorities" below — a code-accurate, re-prioritized roadmap (audio → combat juice → control
-  groups → smarter AI → objective types). All current work is committed + live.
+- **Next action:** Audio (item 1) is **done**. Next up the **▼ Development plan** is **item 2 —
+  Combat juice** (floating damage numbers, hit-flash/recoil, unit death poof — procedural, cheap,
+  no balance impact; units don't explode yet, only buildings do). Then control groups + the repath
+  fix (item 3). All current work is committed + live.
 
 > **Play live: https://holsteredsoul.github.io/dune-clone/** (GitHub Pages; repo is now PUBLIC).
 > Auto-deploys on every push to `main` via `.github/workflows/deploy.yml`. `vite.config.ts` sets
@@ -131,6 +153,15 @@ fight → win/lose — works without breaking.
   makes Artillery kite away when caught point-blank (its built-in weakness). *Ported/adapted from
   Dune_Grok's `DAMAGE_VS_ARMOR`, but keyed by weapon type rather than attacker unit-id so it
   doesn't couple to the roster.*
+- **Audio is procedural + sim-decoupled.** Cues are SYNTHESIZED at runtime in `src/core/audio.ts`
+  (Web Audio oscillators + filtered noise) — no asset files, matching the renderer's procedural-FX
+  fallbacks and keeping Pages a static bundle. The sim stays pure: `world.ts` only pushes plain
+  `{name,x,y}` to `audioEvents` (guarded by `typeof window`, so the headless harness is inert and
+  never imports audio); the controller (`game.ts`) drains that queue each rendered `frame()`,
+  applies the audio *policy* (camera-gate spatial cues to on-screen + stereo-pan, throttle, voice
+  cap) and plays UI cues directly in its input handlers. This is the same "plain data + poll each
+  frame, no event bus" pattern the rest of the codebase uses. The `audio` singleton is mute-by-
+  `localStorage` and unlocks its `AudioContext` on the first user gesture (browser autoplay policy).
 - **Upgrades are owner-wide multipliers, not per-unit tech.** `Player.upgrades: Set<id>` →
   `upgradeMult(effect)`; damage & harvest multipliers apply at use-time (instant, all units),
   while vehicle HP/speed are baked per-unit in `applyUpgradeStats()` (always derived from the
@@ -201,6 +232,10 @@ session log, newest on top).
   strip (auto-discovered, `frameCount=width/height`) when present, else a richer procedural blast
   (ring + flash + cooling fireball + debris). Spec: `assets/sprites/fx-explosion.md`. Renderer-only,
   no sim change. ✅
+- [x] **M13 — Audio layer.** Procedural Web Audio synth (`src/core/audio.ts`, zero asset files):
+  ~17 cues (select/move/place/build/cancel/upgrade, per-weapon-type fire, explosion, under-attack,
+  victory/defeat) with throttle + voice cap + stereo pan + `localStorage` mute (`M`/top-bar speaker).
+  Sim stays pure via a `world.audioEvents` queue drained in `game.frame()`; zero balance impact. ✅
 
 ## Open tasks / current priorities
 
@@ -217,10 +252,11 @@ counts; unit/building HP bars; selection rings; "LOW POWER" banner; rally dashed
 right-click-cancel builds; parallel production; building sprites; **explosion FX (sprite-sheets live)**.
 
 **Do next, in order (each ~a session; balance-bound items are the wildcard):**
-1. **Audio layer** — the single biggest missing-feel item, and cheap. Small Web Audio module +
-   ~10 short sounds (select, move, fire-per-weapon-type, build-complete, under-attack alert,
-   explosion). Highest immersion-per-hour. (No balance impact.)
-2. **Combat juice** — floating damage numbers, a hit-flash/recoil on units, a unit death poof.
+1. ~~**Audio layer**~~ ✅ **DONE (M13).** Procedural Web Audio (`src/core/audio.ts`): per-weapon
+   fire, select/move/build/under-attack/explosion/victory cues, mute (`M`/speaker), zero balance
+   impact. The next-time extension if wanted: optional sample-file overrides (drop wav/mp3, prefer
+   over synth) — but keep them OUT of the `world.ts` import chain so the esbuild sim stays clean.
+2. **← NEXT: Combat juice** — floating damage numbers, a hit-flash/recoil on units, a unit death poof.
    Procedural, cheap; beats unit *sprite sheets* (units are 6–19px). Buildings already explode;
    units don't yet. (No balance impact.)
 3. **Quick RTS QoL** — control groups (Ctrl+1–9, *currently absent*) + the one real Phase-0 fix:
@@ -303,6 +339,32 @@ which is the unpredictable wildcard.
   Revisit if/when bumping Vite intentionally.
 
 ## Session log (terse; newest on top)
+- **2026-06-14** — **M13: Audio layer (procedural Web Audio).** Top item of the dev plan. New
+  `src/core/audio.ts` `audio` singleton synthesizes ~17 cues at runtime (oscillator tones + filtered
+  noise; `tone()`/`noise()` primitives) — no sound files, mirroring the renderer's procedural blasts.
+  Lazy `AudioContext` unlocked on first gesture (autoplay policy: belt-and-suspenders — both an
+  in-`handleInput` call AND direct `pointerdown`/`keydown` listeners in `main.ts`); master gain →
+  compressor; per-cue THROTTLE map + 16-voice cap (a battle collapses to a cadence, not a wall);
+  optional stereo pan; mute persisted to `localStorage` (`M` key + a procedural top-bar speaker glyph
+  with a red strike when muted). **Architecture (the important bit): the sim stays pure.** `world.ts`
+  pushes plain `{name,x,y}` to a new `audioEvents` queue through `emit()`, gated by
+  `AUDIO_CAPTURE = typeof window !== 'undefined'` — so the headless esbuild sim (which imports
+  world.ts) never accumulates events, never imports audio, and is byte-for-byte unchanged. Hook sites
+  (from a 3-agent code-map workflow): `fire()`→`fire-<weapon.type>`, `damage()`→`explosion`/`-big` on
+  death + throttled `under-attack` on player hit, `completeUnit()`→`unit-ready`, structure-ready→
+  `build-ready`. `game.frame()` drains the queue: spatial cues (`fire-*`/`explosion*`) are
+  camera-gated to on-screen + panned by screen-x, the rest always play; select/move/place/build/
+  cancel/upgrade fire directly in the input handlers; victory/defeat stinger on the win/lose edge.
+  `ui.ts` added the speaker toggle (`hitTestTopBar` + `{type:'mute'}` UiAction + a `muted` draw param).
+  `main.ts` exposes `window.audio` (debug handle, like `window.game`). **Verified:** clean `build`
+  (+0.12 kB); **30-run sim** = clean ramp (Easy 97/100/100, Normal 57/50/30, Hard 87/60/53, passive
+  100% loss; M3 spread is the documented noise band — and audio CANNOT move the sim by construction);
+  exhaustive live E2E via `window.game`/`window.audio` (AudioContext running@48kHz; full
+  `emit→drain→play` pipe proven with real `fire-gun/fire-rocket/explosion/under-attack` + non-zero
+  pan + queue drains to 0/frame; all 6 UI cues; `M`+button mute toggle + `localStorage` persist;
+  victory/defeat stingers; zero console errors). Screenshot timed out = known collapsed-tab artifact.
+  Files: new `src/core/audio.ts`; `src/world/world.ts`, `src/game/game.ts`, `src/render/ui.ts`,
+  `src/main.ts`; docs `CLAUDE.md` + this file. (committed + pushed 2026-06-14).
 - **2026-06-14** — **Shipped public + captured next-session plan.** Made the repo PUBLIC and put
   the game live on GitHub Pages (`vite.config.ts` base `/dune-clone/` + `.github/workflows/deploy.yml`,
   Pages source = Actions): **https://holsteredsoul.github.io/dune-clone/**, auto-deploys on push to

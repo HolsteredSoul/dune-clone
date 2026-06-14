@@ -13,6 +13,7 @@ import { BUILDINGS } from '../world/defs';
 import type { BuildingDef, Difficulty } from '../world/defs';
 import { TILE, SIDEBAR_W } from '../world/constants';
 import { MISSIONS } from './missions';
+import { audio } from '../core/audio';
 
 export class Game {
   world!: World;
@@ -60,18 +61,51 @@ export class Game {
     this.cam.update(dt, this.input);
     this.world.update(dt);
     this.ai.update(dt);
-    if (this.world.result !== 'playing') this.overlay = this.world.result;
+    if (this.world.result !== 'playing') {
+      this.overlay = this.world.result; // single won/lost edge (step() early-returns thereafter)
+      audio.play(this.world.result === 'won' ? 'victory' : 'defeat');
+    }
   }
 
   frame(): void {
     this.handleInput();
+    this.playWorldAudio();
     this.render();
     this.input.flush();
+  }
+
+  /** Drain the sim's per-tick sound cues. Spatial cues (fire/explosion) are gated to on-screen
+   *  shots and panned by their screen-x; alerts/UI confirmations always play centred. */
+  private playWorldAudio(): void {
+    const events = this.world.audioEvents;
+    for (const e of events) {
+      if (e.name.startsWith('fire') || e.name.startsWith('explosion')) {
+        if (!this.onScreen(e.x, e.y)) continue;
+        audio.play(e.name, this.panFor(e.x));
+      } else {
+        audio.play(e.name);
+      }
+    }
+    events.length = 0;
+  }
+
+  private onScreen(wx: number, wy: number): boolean {
+    const m = 64; // small margin so edge action still sounds
+    return wx >= this.cam.x - m && wx <= this.cam.x + this.cam.viewW + m
+        && wy >= this.cam.y - m && wy <= this.cam.y + this.cam.viewH + m;
+  }
+
+  private panFor(wx: number): number {
+    const half = this.cam.viewW / 2;
+    if (half <= 0) return 0;
+    return Math.max(-1, Math.min(1, (wx - this.cam.x - half) / half)) * 0.6;
   }
 
   // ---- input -------------------------------------------------------------------------------
 
   private handleInput(): void {
+    // Resume the AudioContext from within a real user gesture (browser autoplay policy).
+    if (this.input.pointerEvents.length || this.input.keyPresses.length) audio.unlock();
     for (const e of this.input.pointerEvents) {
       if (this.overlay !== 'none') {
         if (e.kind === 'leftdown') {
@@ -110,13 +144,18 @@ export class Game {
       if (action) this.doUiAction(action);
       return;
     }
+    const top = this.ui.hitTestTopBar(x, y);
+    if (top) { this.doUiAction(top); return; }
     if (this.placing) {
       this.tryPlace(x, y);
       return;
     }
     if (this.pendingAttackMove) {
       const units = this.selectedUnits();
-      if (units.length) this.world.commandAttackMove(units, this.cam.x + x, this.cam.y + y);
+      if (units.length) {
+        this.world.commandAttackMove(units, this.cam.x + x, this.cam.y + y);
+        audio.play('move');
+      }
       this.pendingAttackMove = false;
       return;
     }
@@ -150,6 +189,7 @@ export class Game {
     const units = this.selectedUnits();
     if (units.length > 0) {
       this.world.commandSmart(units, this.cam.x + x, this.cam.y + y);
+      audio.play('move');
       return;
     }
     // No units selected: if a friendly producer building is selected, set its rally.
@@ -176,26 +216,36 @@ export class Game {
         if (home) this.cam.centerOn(home.centerX, home.centerY);
         break;
       }
-      case 'KeyA': if (units.length) this.pendingAttackMove = true; break;
-      case 'KeyS': this.world.commandStop(units); break;
-      case 'KeyH': this.world.commandHold(units); break;
-      case 'KeyG': this.world.commandGuard(units); break;
+      case 'KeyA': if (units.length) { this.pendingAttackMove = true; audio.play('select'); } break;
+      case 'KeyS': this.world.commandStop(units); if (units.length) audio.play('move'); break;
+      case 'KeyH': this.world.commandHold(units); if (units.length) audio.play('move'); break;
+      case 'KeyG': this.world.commandGuard(units); if (units.length) audio.play('move'); break;
+      case 'KeyM': { const muted = audio.toggleMute(); if (!muted) audio.play('select'); break; }
     }
   }
 
   private doUiAction(action: ReturnType<Ui['hitTest']>): void {
     if (!action) return;
-    if (action.type === 'minimap') {
+    if (action.type === 'mute') {
+      const muted = audio.toggleMute();
+      if (!muted) audio.play('select');
+    } else if (action.type === 'minimap') {
       this.cam.centerOn(action.wx, action.wy);
     } else if (action.type === 'unit') {
+      const ok = this.world.canQueueUnit('player', action.id);
       this.world.queueUnit('player', action.id);
+      if (ok) audio.play('build-start');
     } else if (action.type === 'upgrade') {
+      const ok = this.world.canPurchaseUpgrade('player', action.id);
       this.world.purchaseUpgrade('player', action.id);
+      if (ok) audio.play('upgrade');
     } else if (action.type === 'structure') {
       if (this.world.player.ready === action.id) {
         this.placing = BUILDINGS[action.id];
+        audio.play('select'); // picked a finished structure up to place
       } else if (this.world.canStartBuilding('player', action.id)) {
         this.world.startBuilding('player', action.id);
+        audio.play('build-start');
       }
     } else if (action.type === 'command') {
       const units = this.selectedUnits();
@@ -203,8 +253,10 @@ export class Game {
       else if (action.cmd === 'stop') this.world.commandStop(units);
       else if (action.cmd === 'hold') this.world.commandHold(units);
       else if (action.cmd === 'guard') this.world.commandGuard(units);
+      if (units.length) audio.play('move');
     } else if (action.type === 'stance') {
       this.world.setStance(this.selectedUnits(), action.stance);
+      if (this.selectedUnits().length) audio.play('select');
     }
   }
 
@@ -212,8 +264,11 @@ export class Game {
    *  permanent and non-refundable, so they're ignored. */
   private doUiCancel(action: ReturnType<Ui['hitTest']>): void {
     if (!action) return;
-    if (action.type === 'unit') this.world.cancelUnit('player', action.id);
-    else if (action.type === 'structure') this.world.cancelStructure('player', action.id);
+    if (action.type === 'unit') { this.world.cancelUnit('player', action.id); audio.play('cancel'); }
+    else if (action.type === 'structure') {
+      this.world.cancelStructure('player', action.id);
+      audio.play('cancel');
+    }
   }
 
   private tryPlace(x: number, y: number): void {
@@ -222,6 +277,7 @@ export class Game {
     if (this.world.canPlace('player', def, tx, ty)) {
       this.world.placeReady('player', tx, ty);
       this.placing = null;
+      audio.play('place');
     }
   }
 
@@ -240,10 +296,12 @@ export class Game {
     if (u) {
       this.selected.add(u.id);
       this.selectedBuilding = null;
+      audio.play('select');
       return;
     }
     const b = this.world.buildingAtTile(Math.floor(wx / TILE), Math.floor(wy / TILE));
     this.selectedBuilding = b && b.owner === 'player' ? b : null;
+    if (this.selectedBuilding) audio.play('select');
   }
 
   private boxSelect(x0: number, y0: number, x1: number, y1: number): void {
@@ -252,6 +310,7 @@ export class Game {
     const units = this.world.unitsInRect(
       this.cam.x + x0, this.cam.y + y0, this.cam.x + x1, this.cam.y + y1, 'player');
     for (const u of units) this.selected.add(u.id);
+    if (this.selected.size > 0) audio.play('select');
   }
 
   private selectedUnits() {
@@ -287,6 +346,6 @@ export class Game {
     };
     this.renderer.draw(this.world, this.cam, view);
     this.ui.draw(this.world, this.cam, this.cam.viewW + SIDEBAR_W, this.cam.viewH,
-      this.overlay, selUnits, this.difficulty);
+      this.overlay, selUnits, this.difficulty, audio.muted);
   }
 }

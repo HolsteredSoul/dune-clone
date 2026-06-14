@@ -7,6 +7,7 @@ import { Camera } from './core/camera';
 import { Renderer } from './render/renderer';
 import { Ui } from './render/ui';
 import { Game } from './game/game';
+import { audio } from './core/audio';
 import { SIM_HZ, SIDEBAR_W } from './world/constants';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -32,6 +33,13 @@ const game = new Game(camera, input, renderer, ui);
 
 window.addEventListener('resize', resize);
 (window as unknown as { game: unknown }).game = game;
+(window as unknown as { audio: unknown }).audio = audio; // debug handle (like window.game)
+
+// Resume audio directly from the first real user gestures (most reliable path under strict
+// browser autoplay policies). unlock() is idempotent, so re-firing on every gesture is harmless.
+const unlockAudio = (): void => audio.unlock();
+window.addEventListener('pointerdown', unlockAudio);
+window.addEventListener('keydown', unlockAudio);
 
 const loop = new GameLoop(SIM_HZ, (dt) => game.step(dt), () => game.frame());
 loop.start();

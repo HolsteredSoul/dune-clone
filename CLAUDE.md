@@ -28,6 +28,7 @@ TypeScript + HTML5 Canvas, bundled with Vite. No game engine.
 | Input (keys/mouse, event queue) | `src/core/input.ts` |
 | Camera / viewport | `src/core/camera.ts` |
 | Grid A* pathfinding | `src/core/astar.ts` |
+| Procedural audio (Web Audio synth) | `src/core/audio.ts` |
 | Building + unit data defs (stats/costs/tech) | `src/world/defs.ts` |
 | Sim orchestrator (economy/combat/win-lose) | `src/world/world.ts` |
 | Enemy AI | `src/world/ai.ts` |
@@ -50,7 +51,9 @@ guard · or use the on-screen command bar (incl. stance: Aggressive/Guard/Hold-G
 **Rally points:** select a friendly producer (yard/barracks/factory/helipad) with no units
 selected, then right-click to set where its new units gather (right-click the building to clear).
 **Difficulty:** pick Easy/Normal/Hard on the mission brief screen (persists for the session).
-`Space` home · `Esc` cancel.
+`Space` home · `Esc` cancel · `M` mute (or click the top-bar speaker; persists in `localStorage`).
+**Audio:** procedural Web Audio (no asset files) — selection/move/per-weapon fire/build/under-attack/
+explosion/victory cues. Unlocks on first click (browser autoplay policy).
 
 > Archived quant-project governance templates live in `archive/governance-template/`
 > (not loaded; kept in case they're reused for a different project).

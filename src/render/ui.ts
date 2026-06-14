@@ -27,6 +27,7 @@ export type UiAction =
   | { type: 'minimap'; wx: number; wy: number }
   | { type: 'command'; cmd: CommandKind }
   | { type: 'stance'; stance: Stance }
+  | { type: 'mute' }
   | { type: 'difficulty'; difficulty: Difficulty };
 
 export type Overlay = 'none' | 'brief' | 'won' | 'lost';
@@ -39,6 +40,7 @@ export class Ui {
   private stanceRects: { stance: Stance; rect: Rect }[] = [];
   private diffRects: { d: Difficulty; rect: Rect }[] = [];
   private minimap: Rect = { x: 0, y: 0, w: 0, h: 0 };
+  private muteRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private screenW = 0;
   private screenH = 0;
 
@@ -47,10 +49,10 @@ export class Ui {
   get sidebarX(): number { return this.screenW - SIDEBAR_W; }
 
   draw(world: World, cam: Camera, screenW: number, screenH: number, overlay: Overlay,
-       selUnits: Unit[], difficulty: Difficulty): void {
+       selUnits: Unit[], difficulty: Difficulty, muted: boolean): void {
     this.screenW = screenW;
     this.screenH = screenH;
-    this.drawTopBar(world);
+    this.drawTopBar(world, muted);
     this.drawSidebar(world, cam);
     this.cmdRects = [];
     this.stanceRects = [];
@@ -59,7 +61,7 @@ export class Ui {
     if (overlay !== 'none') this.drawOverlay(world, overlay, difficulty);
   }
 
-  private drawTopBar(world: World): void {
+  private drawTopBar(world: World, muted: boolean): void {
     const ctx = this.ctx;
     const w = this.screenW - SIDEBAR_W;
     ctx.fillStyle = 'rgba(10,12,16,0.85)';
@@ -73,6 +75,43 @@ export class Ui {
     if (power.factor < 1) {
       ctx.fillStyle = '#e0524a';
       ctx.fillText('LOW POWER', 280, 18);
+    }
+    this.muteRect = { x: w - 30, y: 4, w: 22, h: 18 };
+    this.drawSpeaker(this.muteRect, muted);
+  }
+
+  /** A small procedural speaker glyph in the top bar — a clickable mute toggle ('M' key too). */
+  private drawSpeaker(r: Rect, muted: boolean): void {
+    const ctx = this.ctx;
+    const cx = r.x + 6, cy = r.y + r.h / 2;
+    const on = !muted;
+    ctx.fillStyle = on ? '#7fd0ff' : '#5a6470';
+    ctx.strokeStyle = on ? '#7fd0ff' : '#5a6470';
+    ctx.lineWidth = 1.5;
+    // speaker body (square) + cone (triangle)
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 3);
+    ctx.lineTo(cx + 4, cy - 3);
+    ctx.lineTo(cx + 8, cy - 6);
+    ctx.lineTo(cx + 8, cy + 6);
+    ctx.lineTo(cx + 4, cy + 3);
+    ctx.lineTo(cx, cy + 3);
+    ctx.closePath();
+    ctx.fill();
+    if (on) {
+      // two sound waves
+      ctx.beginPath();
+      ctx.arc(cx + 8, cy, 5, -0.7, 0.7);
+      ctx.moveTo(cx + 8, cy - 8);
+      ctx.arc(cx + 8, cy, 8, -0.7, 0.7);
+      ctx.stroke();
+    } else {
+      // red strike-through for muted
+      ctx.strokeStyle = '#e0524a';
+      ctx.beginPath();
+      ctx.moveTo(cx + 1, cy - 7);
+      ctx.lineTo(cx + 15, cy + 7);
+      ctx.stroke();
     }
   }
 
@@ -375,6 +414,12 @@ export class Ui {
   hitTestCommandBar(x: number, y: number): UiAction | null {
     for (const c of this.cmdRects) if (inRect(x, y, c.rect)) return { type: 'command', cmd: c.cmd };
     for (const s of this.stanceRects) if (inRect(x, y, s.rect)) return { type: 'stance', stance: s.stance };
+    return null;
+  }
+
+  /** Hit-test the top resource bar (currently just the mute toggle). */
+  hitTestTopBar(x: number, y: number): UiAction | null {
+    if (inRect(x, y, this.muteRect)) return { type: 'mute' };
     return null;
   }
 

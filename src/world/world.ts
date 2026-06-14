@@ -28,6 +28,18 @@ export interface Effect {
   size: number;
 }
 
+/** A one-shot sound request the controller drains each rendered frame (see Game). Kept as plain
+ *  data so the sim stays pure and the headless harness never touches audio. */
+export interface AudioEvent {
+  name: string;
+  x: number;
+  y: number;
+}
+
+// Only capture audio events in a browser. In the headless sim (Node, no `window`) this is false,
+// so `audioEvents` never accumulates and there is zero overhead — the sim stays pure-data.
+const AUDIO_CAPTURE = typeof window !== 'undefined';
+
 export interface MissionConfig {
   name: string;
   brief: string;
@@ -51,6 +63,8 @@ export class World {
   readonly units: Unit[] = [];
   readonly projectiles: Projectile[] = [];
   readonly effects: Effect[] = [];
+  /** Sound cues emitted this tick; the controller drains + clears them each rendered frame. */
+  readonly audioEvents: AudioEvent[] = [];
   readonly fog = new Fog();
   readonly config: MissionConfig;
   readonly difficulty: Difficulty;
@@ -59,6 +73,7 @@ export class World {
   result: GameResult = 'playing';
   time = 0;
   private fogTimer = 0;
+  private lastAlertTime = -99; // throttles the player "under attack" cue (see damage())
 
   constructor(config: MissionConfig, difficulty: Difficulty = 'normal') {
     this.config = config;
@@ -329,6 +344,7 @@ export class World {
 
   private completeUnit(faction: Faction, defId: string, producer: Building): void {
     const def = UNITS[defId];
+    if (faction === 'player') this.emit('unit-ready');
     const exitTile = nearestOpen(this.blocked,
       Math.floor(producer.exitX / TILE), Math.floor(producer.exitY / TILE));
     const u = this.spawnUnit(def, faction, (exitTile.tx + 0.5) * TILE, (exitTile.ty + 0.5) * TILE);
@@ -485,6 +501,7 @@ export class World {
       if (p.building.progress >= 1) {
         p.ready = p.building.defId;
         p.building = null;
+        if (p.faction === 'player') this.emit('build-ready');
       }
     }
     for (const [builtAt, q] of p.unitQueues) {
@@ -778,6 +795,11 @@ export class World {
     u.muzzleFlash = 0.08;
   }
 
+  /** Queue a sound cue for the controller to play (browser only — inert in the headless sim). */
+  private emit(name: string, x = 0, y = 0): void {
+    if (AUDIO_CAPTURE) this.audioEvents.push({ name, x, y });
+  }
+
   /** Apply a weapon's hit: armor-scaled damage to the target (+ splash), and a visual tracer.
    *  Damage = base × owner's damage upgrade × DAMAGE_VS_ARMOR[type][target armor]. */
   private fire(owner: Faction, weapon: WeaponDef, fromX: number, fromY: number,
@@ -787,16 +809,21 @@ export class World {
     this.damage(target, base * damageMultiplier(weapon.type, armorOf(target)));
     if (weapon.splash) this.splash(owner, weapon, base, tx, ty, target.id);
     this.projectiles.push(new Projectile(owner, weapon, fromX, fromY, tx, ty));
+    this.emit(`fire-${weapon.type}`, fromX, fromY); // controller gates this to on-screen shots
   }
 
   private damage(target: Combatant, amount: number): void {
     target.hp -= amount;
     if (target.hp <= 0) {
       const big = target.entityKind === 'building';
-      this.effects.push({
-        x: centerX(target), y: centerY(target),
-        ttl: CORPSE_TTL, max: CORPSE_TTL, size: big ? 36 : 16,
-      });
+      const ex = centerX(target), ey = centerY(target);
+      this.effects.push({ x: ex, y: ey, ttl: CORPSE_TTL, max: CORPSE_TTL, size: big ? 36 : 16 });
+      this.emit(big ? 'explosion-big' : 'explosion', ex, ey);
+    } else if (target.owner === 'player' && this.time - this.lastAlertTime > 0.5) {
+      // A player unit/building is taking fire (and survived the hit): nudge an "under attack"
+      // alert. Coarse-throttled here; the audio layer enforces the real ~8s spacing.
+      this.lastAlertTime = this.time;
+      this.emit('under-attack');
     }
   }
 
