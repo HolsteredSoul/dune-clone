@@ -263,12 +263,19 @@ fight → win/lose — works without breaking.
   (Depleted Rounds / Composite Armor / Turbo Drives / Salvage Logistics) hosted at the Radar, and
   the enemy AI now *gradually* fields Rockets/Scouts and buys one upgrade. Re-tuned the difficulty
   table + per-mission economy to restore a healthy ladder. (Full detail in the session log.)
-- **Next action:** The whole numbered plan + every Strategic item (save/load, faction asymmetry +
-  **house picker**) + two "Then" items (rocket turret, repair) are **done**. Natural next layers:
-  **distinct rosters/superweapons** per house (the deeper asymmetry — content + balance work),
-  **skirmish mode** (would exercise the M16 AI personalities + house/difficulty selection on a free
-  map), and **unit veterancy**. Then perf (only when it hurts) and multiplayer (last). All current
-  work is committed + live.
+- **Next action (start here next session):** The whole numbered plan + every Strategic item +
+  cheap wins are **done** (M13–M23, all committed + live). **Recommended first item: a title/main-
+  menu screen + a pause screen — both are currently MISSING** (the game boots straight into Mission
+  1's brief; the brief is only a soft per-mission start, and there is no in-play pause — `Esc` just
+  cancels selection). Both are TIGHT + SAFE (UI/controller only, zero sim/balance impact) and
+  high-value: a title menu is also the natural home for **mode selection (Campaign / Skirmish)** and
+  a Continue (load-save) button. Implementation sketch: add `'title'` + `'paused'` to the `Overlay`
+  union (`ui.ts`); `Game` boots to `'title'`; a `P`/`Esc` toggle to `'paused'` during play (`step()`
+  already freezes while `overlay !== 'none'`, so pause is mostly a new overlay + a resume control);
+  draw both in `ui.drawOverlay`. THEN the bigger items: **skirmish mode** (free map + the existing
+  house/difficulty pickers + an AI-personality picker — title screen is its entry point),
+  **distinct rosters/superweapons** per house (deeper asymmetry — content + chaotic balance),
+  **unit veterancy** (balance-bound), then perf (only when it hurts) and multiplayer (last).
 
 > **Play live: https://holsteredsoul.github.io/dune-clone/** (GitHub Pages; repo is now PUBLIC).
 > Auto-deploys on every push to `main` via `.github/workflows/deploy.yml`. `vite.config.ts` sets
