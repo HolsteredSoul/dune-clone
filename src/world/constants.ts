@@ -41,5 +41,10 @@ export const HIT_FLASH_TIME = 0.12;    // seconds a unit/building flashes white 
 export const POPUP_TTL = 0.7;          // seconds a floating damage number lives
 export const POPUP_RISE = 20;          // px a damage number drifts upward over its life
 
+// --- Repair (player utility: restore building HP for credits) ---
+export const REPAIR_RATE = 90;         // building HP restored per second while repairing
+export const REPAIR_COST_FACTOR = 0.45; // credits per restored HP, as a fraction of cost/maxHp
+                                        // (so a full repair from 0 costs ~45% of the rebuild price)
+
 // --- Fog of war ---
 export const FOG_REFRESH = 0.25;       // seconds between visibility recomputes

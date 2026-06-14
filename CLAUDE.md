@@ -57,6 +57,8 @@ selected, then right-click to set where its new units gather (right-click the bu
 **Difficulty:** pick Easy/Normal/Hard on the mission brief screen (persists for the session).
 `Space` home · `Esc` cancel · `M` mute (or click the top-bar speaker; persists in `localStorage`).
 **Save/load:** `Ctrl+S` quick-save · `Ctrl+L` quick-load (one slot in `localStorage`; play only).
+**Repair:** select a damaged player building, press `R` to toggle self-repair (heals HP, drains
+credits; pulsing green `+` while active).
 **Audio:** procedural Web Audio (no asset files) — selection/move/per-weapon fire/build/under-attack/
 explosion/victory cues. Unlocks on first click (browser autoplay policy).
 

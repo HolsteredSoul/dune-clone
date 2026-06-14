@@ -18,6 +18,7 @@ export class Building {
   cooldown = 0; // turret weapon cooldown timer
   muzzleFlash = 0;
   hitFlash = 0; // world.time at which the white "I got hit" flash expires (visual only)
+  repairing = false; // player toggled self-repair (heals HP, drains credits — see World)
   rallyX: number | null = null; // unit gather point (world px); null = none
   rallyY: number | null = null;
 

@@ -7,6 +7,7 @@ import {
   TILE, MAP_W, MAP_H, HARVEST_RATE, HARVESTER_CAPACITY, HARVEST_LEASH, UNLOAD_RATE,
   SPICE_PER_CREDIT, MIN_POWER_FACTOR, SEPARATION_RADIUS, SEPARATION_FORCE, CORPSE_TTL,
   FOG_REFRESH, GUARD_LEASH, AGGRO_LEASH, HIT_FLASH_TIME, POPUP_TTL,
+  REPAIR_RATE, REPAIR_COST_FACTOR,
 } from './constants';
 import { TileMap, Terrain } from './tilemap';
 import { Building, reserveBuildingIds } from './building';
@@ -83,6 +84,7 @@ interface PlayerSnapshot {
 interface BuildingSnapshot {
   id: number; defId: string; owner: Faction; tx: number; ty: number;
   hp: number; cooldown: number; rallyX: number | null; rallyY: number | null;
+  repairing?: boolean;
 }
 interface UnitSnapshot {
   id: number; defId: string; owner: Faction; x: number; y: number;
@@ -181,6 +183,7 @@ export class World {
       buildings: this.buildings.map((b) => ({
         id: b.id, defId: b.def.id, owner: b.owner, tx: b.tx, ty: b.ty,
         hp: b.hp, cooldown: b.cooldown, rallyX: b.rallyX, rallyY: b.rallyY,
+        repairing: b.repairing,
       })),
       units: this.units.map((u) => ({
         id: u.id, defId: u.def.id, owner: u.owner, x: u.x, y: u.y,
@@ -221,6 +224,7 @@ export class World {
       const b = new Building(BUILDINGS[bs.defId], bs.owner, bs.tx, bs.ty);
       (b as { id: number }).id = bs.id;
       b.hp = bs.hp; b.cooldown = bs.cooldown; b.rallyX = bs.rallyX; b.rallyY = bs.rallyY;
+      b.repairing = !!bs.repairing;
       this.buildings.push(b);
       if (bs.id > maxB) maxB = bs.id;
     }
@@ -639,6 +643,7 @@ export class World {
     this.updateProjectiles(dt);
     this.updateEffects(dt);
     this.updatePopups(dt);
+    this.repairBuildings(dt);
     this.cleanup();
 
     this.fogTimer -= dt;
@@ -1049,6 +1054,30 @@ export class World {
       p.ttl -= dt;
       if (p.ttl <= 0) this.popups.splice(i, 1);
     }
+  }
+
+  /** Player-toggled self-repair: flagged buildings heal HP and drain their owner's credits, until
+   *  full HP or the credits run out. (No bot ever flags `repairing`, so this is a no-op in the sim.) */
+  private repairBuildings(dt: number): void {
+    for (const b of this.buildings) {
+      if (!b.repairing) continue;
+      if (b.hp >= b.def.maxHp) { b.repairing = false; continue; }
+      const owner = this.player_(b.owner);
+      if (owner.credits <= 0) { b.repairing = false; continue; }
+      const costPerHp = (b.def.cost / b.def.maxHp) * REPAIR_COST_FACTOR;
+      let heal = Math.min(REPAIR_RATE * dt, b.def.maxHp - b.hp);
+      const cost = heal * costPerHp;
+      if (cost > owner.credits && costPerHp > 0) heal = owner.credits / costPerHp; // partial when low
+      b.hp += heal;
+      owner.credits -= heal * costPerHp;
+      if (b.hp >= b.def.maxHp) { b.hp = b.def.maxHp; b.repairing = false; }
+    }
+  }
+
+  /** Toggle self-repair on a building (ignored if already at full HP). */
+  toggleRepair(b: Building): void {
+    if (b.hp >= b.def.maxHp) { b.repairing = false; return; }
+    b.repairing = !b.repairing;
   }
 
   private separate(dt: number): void {

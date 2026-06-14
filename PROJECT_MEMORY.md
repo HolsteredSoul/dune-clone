@@ -26,13 +26,24 @@ fight → win/lose — works without breaking.
   audio layer, combat juice (damage numbers / hit-flash / infantry death poof), control
   groups + a clip-through repath fix, a (skirmish-ready) AI-personality system, and
   objective/win-condition types (destroyAll/destroyTarget/survive/defend) with a new survive
-  mission, and quick save/load**, all on a re-verified difficulty ladder.
+  mission, quick save/load, a Rocket Turret, and building repair**, all on a re-verified
+  difficulty ladder.
   Latest `npm run sim` (30-40 runs/cell, after the smart-harvester rebalance): **Easy ~100/100/100,
   Normal ~60/46/40, Hard ~75/52/22** (M1/M2/M3 player win%, averaged over 2 noisy confirmation
   runs) — a clean difficulty *ramp* (M1 easiest → M3 the hard finale), no 0%/100% cells, passive
   loses 100%. The sim bot is a LOWER BOUND, especially on M3, since it never micros Artillery
   (which the M3 brief advises) — a human does better. The surface is noisy; read at ≥30 runs.
-- **Last done (newest):** **M19 — Rocket Turret (anti-armour defence, data-only).** New `BUILDINGS.
+- **Last done (newest):** **M20 — Building repair (player utility).** Select a damaged player
+  building, press **`R`** to toggle self-repair: `World.repairBuildings(dt)` heals it at `REPAIR_RATE`
+  90 hp/s and drains the owner's credits at `REPAIR_COST_FACTOR` 0.45 × (cost/maxHp) per hp (≈45% of
+  the rebuild price for a full heal), auto-stopping at full HP or when credits run out. `Building.
+  repairing` flag; `World.toggleRepair`; a pulsing green "+" renders over a repairing building; a
+  "Repairing"/"Repair off" toast. The flag is saved/restored (added to the building snapshot,
+  backward-compatible). **Zero sim impact** — no bot ever flags `repairing`, so `repairBuildings` is
+  a no-op early-continue loop in the sim. Verified: clean `build`; live E2E — `R` heals 100→280 hp in
+  2s (90/s), drains credits, auto-stops at maxHp, and the flag survives a save/load round-trip; no
+  console errors; **30-run sim unchanged**. **Committed + pushed to origin/main.**
+- **Prior:** **M19 — Rocket Turret (anti-armour defence, data-only).** New `BUILDINGS.
   rocketturret` (1×1, cost 400, requires Radar, `power -30`, hp 520) with a **rocket-type** weapon
   (damage 30, range 200 > the Gun Turret's 170, cooldown 1.7, splash 18, `canTargetAir`). Rocket vs
   heavy = 1.4× so it's the real answer to the tank-heavy enemy pushes, and its longer range lets it
@@ -214,9 +225,9 @@ fight → win/lose — works without breaking.
 - **Next action:** Items 1–5 + **save/load** are **done**. The big remaining flagship is **faction
   asymmetry (Atreides vs Harkonnen)** — distinct rosters/bonuses instead of today's generic
   green-vs-red with identical units; a large, balance-heavy lift best given its own focused session.
-  Cheaper safe wins still open: **repair mechanics** (player utility), **skirmish mode** (would
-  finally exercise the M16 AI personalities), and **unit veterancy**. (The **rocket/AA turret** is
-  now done — M19.) All current work is committed + live.
+  Cheaper safe wins still open: **skirmish mode** (would finally exercise the M16 AI personalities)
+  and **unit veterancy** (balance-impacting). (Rocket turret = M19, repair = M20, both done.) All
+  current work is committed + live.
 
 > **Play live: https://holsteredsoul.github.io/dune-clone/** (GitHub Pages; repo is now PUBLIC).
 > Auto-deploys on every push to `main` via `.github/workflows/deploy.yml`. `vite.config.ts` sets
@@ -372,6 +383,9 @@ session log, newest on top).
 - [x] **M19 — Rocket Turret.** Data-only `BUILDINGS.rocketturret` (Radar-gated anti-armour defence:
   rocket-type, range 200, splash, `canTargetAir`) + `BUILD_MENU_ORDER`. Reuses the generic turret
   machinery; zero sim impact (no bot builds it). ✅
+- [x] **M20 — Building repair.** `R` toggles self-repair on a selected player building (`World.
+  repairBuildings`: 90 hp/s, drains credits ~45% of rebuild cost, auto-stops at full); pulsing green
+  "+" indicator; saved/restored. Zero sim impact (no bot repairs). ✅
 
 ## Open tasks / current priorities
 
@@ -490,6 +504,17 @@ which is the unpredictable wildcard.
   Revisit if/when bumping Vite intentionally.
 
 ## Session log (terse; newest on top)
+- **2026-06-14** — **M20: Building repair (player utility "Then" item).** `R` on a selected player
+  building toggles `Building.repairing`; `World.repairBuildings(dt)` (new, called in `update()` before
+  `cleanup`) heals at `REPAIR_RATE` 90 hp/s and drains the owner's credits at `REPAIR_COST_FACTOR`
+  0.45×(cost/maxHp) per hp, auto-stopping at full HP / when credits hit 0 (partial heal when low).
+  `World.toggleRepair` (ignored at full HP). Renderer draws a pulsing green "+" over repairing
+  buildings; `game.ts` shows a Repairing/Repair-off toast. The flag is added to the building
+  save-snapshot (optional field → backward-compatible, no SAVE_VERSION bump). Zero sim impact — no
+  AI/bot flags `repairing`, so the loop just early-continues in the headless sim. Verified: clean
+  `build`; live E2E (R heals 100→280 in 2s = 90/s, drains credits, auto-stops at maxHp 350, flag
+  survives save→load); no console errors; 30-run sim unchanged. Files: `world/{constants,building,
+  world}.ts`, `game/game.ts`, `render/renderer.ts`. (committed + pushed 2026-06-14).
 - **2026-06-14** — **M19: Rocket Turret (cheap "Then" item).** Added `BUILDINGS.rocketturret` — a
   Radar-gated 1×1 anti-armour turret (rocket weapon: dmg 30, range 200, cooldown 1.7, splash 18,
   `canTargetAir`; 520 hp, cost 400, power -30) + an entry in `BUILD_MENU_ORDER`. Rocket vs heavy 1.4×

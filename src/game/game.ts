@@ -334,6 +334,15 @@ export class Game {
       case 'KeyH': this.world.commandHold(units); if (units.length) audio.play('move'); break;
       case 'KeyG': this.world.commandGuard(units); if (units.length) audio.play('move'); break;
       case 'KeyM': { const muted = audio.toggleMute(); if (!muted) audio.play('select'); break; }
+      case 'KeyR': {
+        const b = this.selectedBuilding;
+        if (b && b.owner === 'player') {
+          this.world.toggleRepair(b);
+          audio.play('select');
+          this.toast(b.repairing ? 'Repairing' : 'Repair off');
+        }
+        break;
+      }
     }
   }
 

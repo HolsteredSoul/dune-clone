@@ -213,6 +213,16 @@ export class Renderer {
       ctx.strokeRect(sx - 1, sy - 1, w + 2, h + 2);
     }
     if (b.hp < b.def.maxHp) this.hpBar(sx, sy - 5, w, b.hp / b.def.maxHp);
+    if (b.repairing) { // pulsing green "+" while self-repair is active
+      const pulse = 0.5 + 0.5 * Math.sin(world.time * 6);
+      ctx.strokeStyle = `rgba(120,230,150,${pulse})`;
+      ctx.lineWidth = 2;
+      const ix = sx + w - 6, iy = sy - 9;
+      ctx.beginPath();
+      ctx.moveTo(ix - 3, iy); ctx.lineTo(ix + 3, iy);
+      ctx.moveTo(ix, iy - 3); ctx.lineTo(ix, iy + 3);
+      ctx.stroke();
+    }
     if (b.muzzleFlash > 0) {
       ctx.fillStyle = 'rgba(255,220,120,0.8)';
       ctx.beginPath();
