@@ -5,7 +5,7 @@
 import type { World } from '../world/world';
 import type { Camera } from '../core/camera';
 import type { Unit } from '../world/unit';
-import { BUILDINGS, UNITS, UPGRADES, BUILD_MENU_ORDER, UPGRADE_ORDER, STANCE_LABEL, DIFFICULTY, DIFFICULTY_ORDER } from '../world/defs';
+import { BUILDINGS, UNITS, UPGRADES, BUILD_MENU_ORDER, UPGRADE_ORDER, STANCE_LABEL, DIFFICULTY, DIFFICULTY_ORDER, HOUSES } from '../world/defs';
 import type { Stance, Difficulty } from '../world/defs';
 import { SIDEBAR_W, TILE, MAP_W, MAP_H } from '../world/constants';
 
@@ -103,6 +103,12 @@ export class Ui {
       ctx.font = 'bold 14px monospace';
       ctx.fillText(label, 410, 18);
     }
+    // Player's house identity (faction asymmetry), right-aligned just left of the mute toggle.
+    ctx.fillStyle = '#9fb6c9';
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(HOUSES[world.player.house].name, w - 38, 18);
+    ctx.textAlign = 'left';
     this.muteRect = { x: w - 30, y: 4, w: 22, h: 18 };
     this.drawSpeaker(this.muteRect, muted);
   }
@@ -317,7 +323,16 @@ export class Ui {
       ctx.fillStyle = '#ffd479';
       ctx.font = 'bold 26px monospace';
       ctx.fillText(world.config.name, cx, cy);
-      cy += 40;
+      cy += 26;
+      ctx.fillStyle = '#9fb6c9';
+      ctx.font = 'bold 13px monospace';
+      ctx.fillText(
+        `House ${HOUSES[world.player.house].name}  vs  House ${HOUSES[world.enemy.house].name}`, cx, cy);
+      cy += 15;
+      ctx.fillStyle = '#8fa0ad';
+      ctx.font = '11px monospace';
+      ctx.fillText(HOUSES[world.player.house].blurb, cx, cy);
+      cy += 24;
       ctx.fillStyle = '#dfe6ec';
       ctx.font = '14px monospace';
       this.wrap(world.config.brief, cx, cy, w * 0.7, 20);

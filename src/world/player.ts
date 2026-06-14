@@ -4,7 +4,7 @@
 
 import { STARTING_CREDITS } from './constants';
 import { UPGRADES } from './defs';
-import type { Faction, UpgradeEffect } from './defs';
+import type { Faction, UpgradeEffect, House } from './defs';
 
 export interface BuildItem {
   defId: string;
@@ -15,6 +15,7 @@ export interface BuildItem {
 
 export class Player {
   credits = STARTING_CREDITS;
+  house: House = 'atreides'; // faction identity; set per mission by World (see HOUSES)
 
   // Structures build one at a time at the construction yard.
   building: BuildItem | null = null;

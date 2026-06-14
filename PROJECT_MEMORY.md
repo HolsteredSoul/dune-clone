@@ -24,16 +24,36 @@ fight → win/lose — works without breaking.
   smart unit AI/stances/commands, **armor/damage-type rock-paper-scissors combat, anti-air
   discipline, an expanded unit roster (Rocket/Scout/Artillery), Tech upgrades, a procedural
   audio layer, combat juice (damage numbers / hit-flash / infantry death poof), control
-  groups + a clip-through repath fix, a (skirmish-ready) AI-personality system, and
+  groups + a clip-through repath fix, a (skirmish-ready) AI-personality system,
   objective/win-condition types (destroyAll/destroyTarget/survive/defend) with a new survive
-  mission, quick save/load, a Rocket Turret, and building repair**, all on a re-verified
-  difficulty ladder.
+  mission, quick save/load, a Rocket Turret, building repair, and Atreides-vs-Harkonnen faction
+  asymmetry (houses)**, all on a re-verified difficulty ladder.
   Latest `npm run sim` (30-40 runs/cell, after the smart-harvester rebalance): **Easy ~100/100/100,
   Normal ~60/46/40, Hard ~75/52/22** (M1/M2/M3 player win%, averaged over 2 noisy confirmation
   runs) — a clean difficulty *ramp* (M1 easiest → M3 the hard finale), no 0%/100% cells, passive
   loses 100%. The sim bot is a LOWER BOUND, especially on M3, since it never micros Artillery
   (which the M3 brief advises) — a human does better. The surface is noisy; read at ≥30 runs.
-- **Last done (newest):** **M20 — Building repair (player utility).** Select a damaged player
+- **Last done (newest):** **M21 — Faction asymmetry: Atreides vs Harkonnen (the flagship).** Houses
+  as an owner-wide modifier layer on the shared roster: `defs.ts` `House`/`HOUSES`, `Player.house`,
+  `MissionConfig.playerHouse?/enemyHouse?` (default player = Atreides, enemy = Harkonnen — canonical
+  Dune). Identity is **precision vs brute**: **Atreides +10% damage / −8% HP** (glass cannon),
+  **Harkonnen +10% HP / −8% damage** (tank). Each house's damage buff exactly equals the other's HP
+  buff, so they're a mirror pair. Applied at single sites: damage in `World.fire` (× `HOUSES[op.house]
+  .damageMult`), unit HP in `applyUpgradeStats` (now runs for ALL units, × `hpMult`). UI: a "House
+  Atreides vs House Harkonnen" line + blurb on the brief, and a house tag in the top bar. **Balance —
+  the hard part:** the naive +12%-dmg-Atreides first cut drifted the ladder +20–50pp easier, because
+  damage also buffs turrets + base-razing while HP doesn't. Fix = make the houses **power-neutral by
+  construction**: added a per-building `maxHp` (Building field, scaled by the owner's house in
+  `addBuilding`; HP-bar + repair now use `b.maxHp`) so the attacker's damage bonus is exactly cancelled
+  by the defender's building HP bonus. With units, turrets, AND buildings all neutral, the **ladder
+  returned to baseline** (proof the factions are balanced) — the asymmetry is tactical *feel*
+  (lethality vs durability, which matters for focus-fire/splash/micro), not raw power, exactly like
+  good RTS factions. Verified: clean `build`; **30-run sim back at baseline** (Easy 100×4, Normal
+  63/60/30/80, Hard 83/63/33/13, passive 100% loss — vs the no-house baseline Normal 77/63/43/73,
+  Hard 80/67/37/20, within noise); live E2E — Atreides player units/buildings at base×0.92, Harkonnen
+  enemy at ×1.10; **save/load round-trip still byte-lossless** with the new `house`+`maxHp` fields;
+  repair heals to the house-scaled cap; no console errors. **Committed + pushed to origin/main.**
+- **Prior:** **M20 — Building repair (player utility).** Select a damaged player
   building, press **`R`** to toggle self-repair: `World.repairBuildings(dt)` heals it at `REPAIR_RATE`
   90 hp/s and drains the owner's credits at `REPAIR_COST_FACTOR` 0.45 × (cost/maxHp) per hp (≈45% of
   the rebuild price for a full heal), auto-stopping at full HP or when credits run out. `Building.
@@ -222,12 +242,13 @@ fight → win/lose — works without breaking.
   (Depleted Rounds / Composite Armor / Turbo Drives / Salvage Logistics) hosted at the Radar, and
   the enemy AI now *gradually* fields Rockets/Scouts and buys one upgrade. Re-tuned the difficulty
   table + per-mission economy to restore a healthy ladder. (Full detail in the session log.)
-- **Next action:** Items 1–5 + **save/load** are **done**. The big remaining flagship is **faction
-  asymmetry (Atreides vs Harkonnen)** — distinct rosters/bonuses instead of today's generic
-  green-vs-red with identical units; a large, balance-heavy lift best given its own focused session.
-  Cheaper safe wins still open: **skirmish mode** (would finally exercise the M16 AI personalities)
-  and **unit veterancy** (balance-impacting). (Rocket turret = M19, repair = M20, both done.) All
-  current work is committed + live.
+- **Next action:** The whole numbered plan + every Strategic item (save/load, **faction asymmetry**)
+  + two "Then" items (rocket turret, repair) are **done**. The houses now make a natural next layer:
+  a **house picker** on the brief (like the difficulty picker — easy now that houses are mirror-
+  balanced, so either matchup stays in-band) and **distinct rosters/superweapons** per house (the
+  deeper asymmetry — content + balance work). Other open "Then" items: **skirmish mode** (would
+  exercise both the M16 AI personalities AND house selection) and **unit veterancy**. All current
+  work is committed + live.
 
 > **Play live: https://holsteredsoul.github.io/dune-clone/** (GitHub Pages; repo is now PUBLIC).
 > Auto-deploys on every push to `main` via `.github/workflows/deploy.yml`. `vite.config.ts` sets
@@ -285,6 +306,21 @@ fight → win/lose — works without breaking.
   push the module id counters past the loaded max so future spawns never collide. Transient cosmetics
   (projectiles/effects/popups) are dropped — damage is applied at fire-time so a shot mid-flight holds
   no sim state. The save lives in one `localStorage` slot, version-gated (`SAVE_VERSION`), play-only.
+- **Faction asymmetry (houses) is a power-NEUTRAL, owner-wide modifier layer.** `Player.house`
+  (`atreides | harkonnen`) → `HOUSES[house]` gives a `damageMult` (applied in `World.fire`, covering
+  units + turrets) and an `hpMult` (applied to units in `applyUpgradeStats` AND to buildings via the
+  per-building `maxHp` set in `addBuilding`). The two houses are a **mirror pair** — Atreides
+  `{dmg 1.10, hp 0.92}`, Harkonnen `{dmg 0.92, hp 1.10}` — chosen so each house's damage buff exactly
+  equals the other's HP buff. Because HP is applied to buildings too, EVERY combat interaction (unit
+  trades, turret fire, base-razing) has time-to-kill = `targetHP/attackerDmg` = 1.0 both ways, so the
+  houses are power-neutral and the verified ladder is preserved (the sim returning to baseline is the
+  proof of balance). The asymmetry is therefore **tactical feel** (glass-cannon lethality vs brute
+  durability — affects focus-fire, splash, retreat decisions, micro), not raw win-rate. **Lesson
+  burned in:** the first cut (Atreides +12% damage only) drifted the ladder +20–50pp easier because
+  damage is more universally useful than HP (it buffs turrets + razing, which HP didn't offset);
+  neutralizing required giving buildings the HP modifier too. Deeper asymmetry (distinct rosters /
+  superweapons) is a future content+balance layer on this foundation. Default campaign matchup =
+  Atreides player vs Harkonnen enemy.
 - **Upgrades are owner-wide multipliers, not per-unit tech.** `Player.upgrades: Set<id>` →
   `upgradeMult(effect)`; damage & harvest multipliers apply at use-time (instant, all units),
   while vehicle HP/speed are baked per-unit in `applyUpgradeStats()` (always derived from the
@@ -386,6 +422,11 @@ session log, newest on top).
 - [x] **M20 — Building repair.** `R` toggles self-repair on a selected player building (`World.
   repairBuildings`: 90 hp/s, drains credits ~45% of rebuild cost, auto-stops at full); pulsing green
   "+" indicator; saved/restored. Zero sim impact (no bot repairs). ✅
+- [x] **M21 — Faction asymmetry (Atreides vs Harkonnen).** `HOUSES` owner-wide modifiers: Atreides
+  +10% damage / −8% HP (glass cannon), Harkonnen +10% HP / −8% damage (tank) — a mirror pair, made
+  power-NEUTRAL by also applying HP to buildings (per-building `maxHp`), so the ladder is preserved
+  (the asymmetry is tactical feel, not raw power). House identity on the brief + top bar; house +
+  building maxHp round-trip through save/load. Default: player Atreides vs enemy Harkonnen. ✅
 
 ## Open tasks / current priorities
 
@@ -504,6 +545,21 @@ which is the unpredictable wildcard.
   Revisit if/when bumping Vite intentionally.
 
 ## Session log (terse; newest on top)
+- **2026-06-14** — **M21: Faction asymmetry — Atreides vs Harkonnen (flagship).** Added a `House`
+  modifier layer (`defs.ts` HOUSES, `Player.house`, `MissionConfig.playerHouse?/enemyHouse?`, default
+  Atreides player vs Harkonnen enemy). Identity = precision vs brute: Atreides `{dmg 1.10, hp 0.92}`,
+  Harkonnen `{dmg 0.92, hp 1.10}` (a mirror pair). Applied at single sites — damage in `World.fire`,
+  unit HP in `applyUpgradeStats` (de-restricted to all kinds). UI: brief matchup line + blurb, top-bar
+  house tag. **The balance journey (3 sim passes):** (1) first cut Atreides +12% dmg / Harkonnen +12%
+  HP → ladder +15–25pp easier; (2) symmetric ±10% glass-cannon/tank → STILL easier (Hard 87/87/77/70
+  vs baseline 80/67/37/20, +40-50pp on M3/M4) because damage buffs turrets + base-razing where HP
+  doesn't; (3) FIX = give buildings the HP modifier too (new per-building `maxHp`, scaled in
+  `addBuilding`; HP-bar + repair use `b.maxHp`) → every interaction neutral (TTK = targetHP/dmg = 1.0)
+  → **ladder back to baseline** (Easy 100×4, Normal 63/60/30/80, Hard 83/63/33/13, passive 100% loss).
+  So the houses are power-neutral (= balanced) and differ in tactical feel, not strength — the right
+  RTS-faction design. Live E2E: units+buildings scaled per house; **save/load round-trip still
+  byte-lossless** with new `house`+`maxHp` fields; repair heals to the scaled cap; no console errors.
+  Files: `world/{defs,player,world,building}.ts`, `render/{renderer,ui}.ts`. (committed + pushed 2026-06-14).
 - **2026-06-14** — **M20: Building repair (player utility "Then" item).** `R` on a selected player
   building toggles `Building.repairing`; `World.repairBuildings(dt)` (new, called in `update()` before
   `cleanup`) heals at `REPAIR_RATE` 90 hp/s and drains the owner's credits at `REPAIR_COST_FACTOR`

@@ -39,6 +39,30 @@ export const DIFFICULTY: Record<Difficulty, DifficultyMods> = {
 
 export const DIFFICULTY_ORDER: Difficulty[] = ['easy', 'normal', 'hard'];
 
+// ---- Houses (faction asymmetry) ------------------------------------------------------------
+// Atreides vs Harkonnen along the classic precision-vs-brute axis. Each house is ONE owner-wide
+// multiplier applied at a single site (damage in World.fire, HP in applyUpgradeStats), kept near
+// mirror-balanced (+12% damage ≈ +12% HP) so the verified ladder barely moves. Assigned per
+// faction-slot per mission (default: player = Atreides, enemy = Harkonnen — the canonical Dune
+// matchup). A house picker + distinct rosters/superweapons are a future layer on this foundation.
+export type House = 'atreides' | 'harkonnen';
+
+export interface HouseMods {
+  id: House;
+  name: string;
+  blurb: string;       // one-line identity, shown on the mission brief
+  damageMult: number;  // owner-wide weapon damage (units + turrets)
+  hpMult: number;      // owner-wide unit HP
+}
+
+// Glass-cannon vs tank, with each house's damage buff exactly equal to the other's HP buff so
+// unit-vs-unit time-to-kill is mathematically neutral (1.10 dmg / 1.10 HP = 1.0 both ways) — the
+// houses differ in feel + the residual base-razing pace, not raw power. Verified near-mirror by sim.
+export const HOUSES: Record<House, HouseMods> = {
+  atreides:  { id: 'atreides',  name: 'Atreides',  blurb: 'Elite precision: +10% damage, but lighter armour (−8% HP).', damageMult: 1.10, hpMult: 0.92 },
+  harkonnen: { id: 'harkonnen', name: 'Harkonnen', blurb: 'Brute resilience: +10% HP, but their guns hit softer (−8% damage).', damageMult: 0.92, hpMult: 1.10 },
+};
+
 // ---- Armor & damage types (rock-paper-scissors combat) -------------------------------------
 // Every unit has an `armor` class; every weapon has a damage `type`. Dealt damage is scaled by
 // DAMAGE_VS_ARMOR[type][armor] (default 1.0). This is the classic Westwood counter system: guns

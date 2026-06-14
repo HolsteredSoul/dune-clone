@@ -212,7 +212,7 @@ export class Renderer {
       ctx.lineWidth = 1;
       ctx.strokeRect(sx - 1, sy - 1, w + 2, h + 2);
     }
-    if (b.hp < b.def.maxHp) this.hpBar(sx, sy - 5, w, b.hp / b.def.maxHp);
+    if (b.hp < b.maxHp) this.hpBar(sx, sy - 5, w, b.hp / b.maxHp);
     if (b.repairing) { // pulsing green "+" while self-repair is active
       const pulse = 0.5 + 0.5 * Math.sin(world.time * 6);
       ctx.strokeStyle = `rgba(120,230,150,${pulse})`;

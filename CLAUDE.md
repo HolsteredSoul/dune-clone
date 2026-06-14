@@ -36,6 +36,7 @@ TypeScript + HTML5 Canvas, bundled with Vite. No game engine.
 | Per-faction economy + production queues | `src/world/player.ts` |
 | Building / Unit / Projectile entities | `src/world/{building,unit,projectile}.ts` |
 | Difficulty table (Easy/Normal/Hard mods) | `src/world/defs.ts` (`DIFFICULTY`) |
+| Faction houses (Atreides/Harkonnen mods) | `src/world/defs.ts` (`HOUSES`) |
 | Headless balance harness | `scripts/sim.ts` |
 | Tile map + terrain + spice | `src/world/tilemap.ts` |
 | Fog of war | `src/world/fog.ts` |

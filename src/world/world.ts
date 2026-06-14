@@ -15,8 +15,8 @@ import { Unit, reserveUnitIds } from './unit';
 import { Projectile } from './projectile';
 import { Player } from './player';
 import { Fog } from './fog';
-import { BUILDINGS, UNITS, DIFFICULTY, UPGRADES, damageMultiplier } from './defs';
-import type { BuildingDef, Faction, Stance, Difficulty, ArmorClass, WeaponDef } from './defs';
+import { BUILDINGS, UNITS, DIFFICULTY, UPGRADES, HOUSES, damageMultiplier } from './defs';
+import type { BuildingDef, Faction, Stance, Difficulty, ArmorClass, WeaponDef, House } from './defs';
 import { findPath, nearestOpen } from '../core/astar';
 import type { TileXY } from '../core/astar';
 import type { BuildItem } from './player';
@@ -62,6 +62,8 @@ export interface MissionConfig {
   aggression: number;
   aiPersonality?: string; // EnemyAI archetype id (see ai.ts PERSONALITIES); default 'balanced'
   objective?: Objective;  // win condition; default 'destroyAll'
+  playerHouse?: House;    // faction identity; default 'atreides'
+  enemyHouse?: House;     // default 'harkonnen'
   playerCredits: number;
   enemyCredits: number;
   buildings: { faction: Faction; defId: string; tx: number; ty: number }[];
@@ -76,6 +78,7 @@ export type GameResult = 'playing' | 'won' | 'lost';
 // intentionally dropped since damage is applied at fire-time, so they carry no sim state). ----
 interface PlayerSnapshot {
   credits: number;
+  house: House;
   building: BuildItem | null;
   ready: string | null;
   unitQueues: [string, BuildItem[]][];
@@ -83,7 +86,7 @@ interface PlayerSnapshot {
 }
 interface BuildingSnapshot {
   id: number; defId: string; owner: Faction; tx: number; ty: number;
-  hp: number; cooldown: number; rallyX: number | null; rallyY: number | null;
+  hp: number; maxHp?: number; cooldown: number; rallyX: number | null; rallyY: number | null;
   repairing?: boolean;
 }
 interface UnitSnapshot {
@@ -139,6 +142,10 @@ export class World {
   constructor(config: MissionConfig, difficulty: Difficulty = 'normal') {
     this.config = config;
     this.difficulty = difficulty;
+    // Faction identities (default to the canonical Atreides player vs Harkonnen enemy). Set before
+    // the initial units spawn so their house HP bonus bakes in.
+    this.player.house = config.playerHouse ?? 'atreides';
+    this.enemy.house = config.enemyHouse ?? 'harkonnen';
     const mods = DIFFICULTY[difficulty];
     this.player.credits = Math.round(config.playerCredits * mods.playerCreditMult);
     this.enemy.credits = Math.round(config.enemyCredits * mods.enemyCreditMult);
@@ -167,6 +174,7 @@ export class World {
   serialize(): WorldSnapshot {
     const ser = (p: Player): PlayerSnapshot => ({
       credits: p.credits,
+      house: p.house,
       building: p.building ? { ...p.building } : null,
       ready: p.ready,
       unitQueues: [...p.unitQueues.entries()].map(([k, q]) => [k, q.map((it) => ({ ...it }))]),
@@ -182,7 +190,7 @@ export class World {
       enemy: ser(this.enemy),
       buildings: this.buildings.map((b) => ({
         id: b.id, defId: b.def.id, owner: b.owner, tx: b.tx, ty: b.ty,
-        hp: b.hp, cooldown: b.cooldown, rallyX: b.rallyX, rallyY: b.rallyY,
+        hp: b.hp, maxHp: b.maxHp, cooldown: b.cooldown, rallyX: b.rallyX, rallyY: b.rallyY,
         repairing: b.repairing,
       })),
       units: this.units.map((u) => ({
@@ -208,6 +216,7 @@ export class World {
 
     const restore = (p: Player, snap: PlayerSnapshot): void => {
       p.credits = snap.credits;
+      if (snap.house) p.house = snap.house; // older saves may lack it → keep the mission default
       p.building = snap.building ? { ...snap.building } : null;
       p.ready = snap.ready;
       p.unitQueues.clear();
@@ -223,7 +232,8 @@ export class World {
     for (const bs of s.buildings) {
       const b = new Building(BUILDINGS[bs.defId], bs.owner, bs.tx, bs.ty);
       (b as { id: number }).id = bs.id;
-      b.hp = bs.hp; b.cooldown = bs.cooldown; b.rallyX = bs.rallyX; b.rallyY = bs.rallyY;
+      b.hp = bs.hp; b.maxHp = bs.maxHp ?? BUILDINGS[bs.defId].maxHp;
+      b.cooldown = bs.cooldown; b.rallyX = bs.rallyX; b.rallyY = bs.rallyY;
       b.repairing = !!bs.repairing;
       this.buildings.push(b);
       if (bs.id > maxB) maxB = bs.id;
@@ -368,12 +378,13 @@ export class World {
   /** (Re)derive a unit's upgrade-scaled stats from its owner's purchased upgrades. Always
    *  computed from the base def (never compounded), so re-applying on a new purchase is safe. */
   private applyUpgradeStats(u: Unit): void {
-    if (u.def.kind !== 'vehicle') return;       // HP/speed upgrades are vehicle-only
     const p = this.player_(u.owner);
     const frac = u.maxHp > 0 ? u.hp / u.maxHp : 1;
-    u.maxHp = u.def.maxHp * p.upgradeMult('vehicleHpMult');
+    // House HP bonus applies to ALL units; the vehicle-HP upgrade stacks on vehicles only.
+    const upgradeHp = u.def.kind === 'vehicle' ? p.upgradeMult('vehicleHpMult') : 1;
+    u.maxHp = u.def.maxHp * upgradeHp * HOUSES[p.house].hpMult;
     u.hp = u.maxHp * frac;
-    u.speedMult = p.upgradeMult('vehicleSpeedMult');
+    if (u.def.kind === 'vehicle') u.speedMult = p.upgradeMult('vehicleSpeedMult');
   }
 
   // ---- upgrades ----------------------------------------------------------------------------
@@ -479,6 +490,10 @@ export class World {
   private addBuilding(def: BuildingDef, faction: Faction, tx: number, ty: number,
                       spawnHarvester: boolean): Building {
     const b = new Building(def, faction, tx, ty);
+    // House HP modifier applies to structures too, so base-razing stays house-neutral (the
+    // attacker's house damage bonus is exactly cancelled by the defender's building HP bonus).
+    b.maxHp = def.maxHp * HOUSES[this.player_(faction).house].hpMult;
+    b.hp = b.maxHp;
     this.buildings.push(b);
     // clear the footprint to sand so nothing draws under it
     for (let y = ty; y < ty + def.h; y++) {
@@ -963,7 +978,8 @@ export class World {
   private fire(owner: Faction, weapon: WeaponDef, fromX: number, fromY: number,
                target: Combatant): void {
     const tx = centerX(target), ty = centerY(target);
-    const base = weapon.damage * this.player_(owner).upgradeMult('damageMult');
+    const op = this.player_(owner);
+    const base = weapon.damage * op.upgradeMult('damageMult') * HOUSES[op.house].damageMult;
     this.damage(target, base * damageMultiplier(weapon.type, armorOf(target)));
     if (weapon.splash) this.splash(owner, weapon, base, tx, ty, target.id);
     this.projectiles.push(new Projectile(owner, weapon, fromX, fromY, tx, ty));
@@ -1061,22 +1077,22 @@ export class World {
   private repairBuildings(dt: number): void {
     for (const b of this.buildings) {
       if (!b.repairing) continue;
-      if (b.hp >= b.def.maxHp) { b.repairing = false; continue; }
+      if (b.hp >= b.maxHp) { b.repairing = false; continue; }
       const owner = this.player_(b.owner);
       if (owner.credits <= 0) { b.repairing = false; continue; }
       const costPerHp = (b.def.cost / b.def.maxHp) * REPAIR_COST_FACTOR;
-      let heal = Math.min(REPAIR_RATE * dt, b.def.maxHp - b.hp);
+      let heal = Math.min(REPAIR_RATE * dt, b.maxHp - b.hp);
       const cost = heal * costPerHp;
       if (cost > owner.credits && costPerHp > 0) heal = owner.credits / costPerHp; // partial when low
       b.hp += heal;
       owner.credits -= heal * costPerHp;
-      if (b.hp >= b.def.maxHp) { b.hp = b.def.maxHp; b.repairing = false; }
+      if (b.hp >= b.maxHp) { b.hp = b.maxHp; b.repairing = false; }
     }
   }
 
   /** Toggle self-repair on a building (ignored if already at full HP). */
   toggleRepair(b: Building): void {
-    if (b.hp >= b.def.maxHp) { b.repairing = false; return; }
+    if (b.hp >= b.maxHp) { b.repairing = false; return; }
     b.repairing = !b.repairing;
   }
 

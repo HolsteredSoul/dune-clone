@@ -15,6 +15,7 @@ export class Building {
   readonly entityKind = 'building' as const;
   readonly id = nextId++;
   hp: number;
+  maxHp: number; // def.maxHp scaled by the owner's house HP modifier (World sets it); HP-bar/repair use this
   cooldown = 0; // turret weapon cooldown timer
   muzzleFlash = 0;
   hitFlash = 0; // world.time at which the white "I got hit" flash expires (visual only)
@@ -29,6 +30,7 @@ export class Building {
     readonly ty: number,
   ) {
     this.hp = def.maxHp;
+    this.maxHp = def.maxHp; // World rescales by the owner's house in addBuilding
   }
 
   get centerX(): number { return (this.tx + this.def.w / 2) * TILE; }
