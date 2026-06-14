@@ -98,7 +98,10 @@ fight → win/lose — works without breaking.
   too; let the **enemy AI** use Artillery (needs the kite micro to behave under AI control);
   AI personalities; audio; control groups (Ctrl+1–9); veterancy; more missions.
 
-> Run it: `npm run dev` → http://localhost:5173/ — focus the tab to play.
+> **Play live: https://holsteredsoul.github.io/dune-clone/** (GitHub Pages; repo is now PUBLIC).
+> Auto-deploys on every push to `main` via `.github/workflows/deploy.yml`. `vite.config.ts` sets
+> `base: '/dune-clone/'` for the Pages sub-path — so local dev is now `http://localhost:5173/dune-clone/`.
+> Run it locally: `npm run dev` (or double-click `play.bat`) — focus the tab to play.
 > Live state is on `window.game` in the console (e.g. `game.world`) for debugging.
 
 > ⚠ Verification note: the in-harness preview captures a *backgrounded* tab, where the browser
