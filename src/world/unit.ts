@@ -26,6 +26,8 @@ export class Unit {
   readonly entityKind = 'unit' as const;
   readonly id = nextId++;
   hp: number;
+  maxHp: number;          // def.maxHp scaled by the owner's HP upgrades (per-unit so it can grow)
+  speedMult = 1;          // owner speed-upgrade multiplier, applied in stepToward
   cooldown = 0;
 
   order: Order = { kind: 'idle' };
@@ -55,6 +57,7 @@ export class Unit {
     public y: number,
   ) {
     this.hp = def.maxHp;
+    this.maxHp = def.maxHp;
     this.guardX = x;
     this.guardY = y;
   }
@@ -85,7 +88,7 @@ export class Unit {
     const dx = x - this.x;
     const dy = y - this.y;
     const dist = Math.hypot(dx, dy);
-    const step = this.def.speed * dt;
+    const step = this.def.speed * this.speedMult * dt;
     if (dist <= step || dist <= ARRIVE_EPS) {
       this.x = x;
       this.y = y;

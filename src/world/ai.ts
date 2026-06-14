@@ -101,12 +101,18 @@ export class EnemyAI {
   private train(): void {
     const owned = this.world.ownedTypes('enemy');
     const floor = this.mods.trainCreditFloor;
+    const credits = this.world.enemy.credits;
     const harvesters = this.world.units.filter(
       (u) => u.owner === 'enemy' && u.def.harvester).length;
     if (owned.has('factory') && harvesters < 2) {
       this.world.queueUnit('enemy', 'harvester');
       return;
     }
+
+    // Spend any healthy surplus on tech before massing more bodies (kept high so teching never
+    // starves the army of units).
+    this.buyUpgrades();
+
     // Cap the standing army at ~waveCap so the AI commits in waves instead of hoarding a
     // steamroll blob; this is the lever that keeps games competitive rather than overrun.
     // Count in-flight queued combat units too, else the AI over-queues between spawns and the
@@ -122,14 +128,36 @@ export class EnemyAI {
     // infantry rush that overruns the player before they can stand up a defence.
     const hasEconomy = this.count('refinery') >= 2 || owned.has('factory');
     const infReserve = hasEconomy ? 250 : 700;
-    if (owned.has('factory') && this.world.enemy.credits > 600 * floor) {
-      this.world.queueUnit('enemy', 'tank');
+    // Vehicles: mostly Battle Tanks, with a couple of early Recon Buggies for pressure/recon.
+    if (owned.has('factory')) {
+      if (this.unitCount('scout') < 2 && this.unitCount('tank') === 0 && credits > 450 * floor) {
+        this.world.queueUnit('enemy', 'scout');
+      } else if (credits > 600 * floor) {
+        this.world.queueUnit('enemy', 'tank');
+      }
     }
-    if (owned.has('barracks') && this.world.enemy.credits > infReserve * floor) {
-      this.world.queueUnit('enemy', 'infantry');
+    // Infantry: blend riflemen with Rocket Troopers (anti-armour, and the AI's only anti-air),
+    // roughly one rocket per two riflemen so the army can answer tanks and Ornithopters.
+    if (owned.has('barracks') && credits > infReserve * floor) {
+      const wantRocket = this.unitCount('rocket') < this.unitCount('infantry') * 0.5;
+      this.world.queueUnit('enemy', wantRocket ? 'rocket' : 'infantry');
     }
-    if (owned.has('helipad') && this.world.enemy.credits > 800 * floor) {
+    if (owned.has('helipad') && credits > 800 * floor) {
       this.world.queueUnit('enemy', 'aircraft');
+    }
+  }
+
+  private unitCount(id: string): number {
+    return this.world.units.filter((u) => u.owner === 'enemy' && u.def.id === id).length;
+  }
+
+  /** Sink a large surplus into a single damage upgrade once the Radar is up. Kept deliberately
+   *  light (one upgrade, high threshold) so the AI never snowballs out of the difficulty band. */
+  private buyUpgrades(): void {
+    if (!this.world.ownedTypes('enemy').has('radar')) return;
+    if (this.world.enemy.credits > 1500
+        && this.world.canPurchaseUpgrade('enemy', 'depleted_rounds')) {
+      this.world.purchaseUpgrade('enemy', 'depleted_rounds');
     }
   }
 

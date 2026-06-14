@@ -43,7 +43,8 @@ TypeScript + HTML5 Canvas, bundled with Vite. No game engine.
 
 ## Controls
 Left-drag/click select · right-click move/attack/harvest · sidebar builds structures (click,
-then click map to place) & queues units · minimap to jump · **arrows/edge/minimap pan** (WASD
+then click map to place) & queues units (**right-click a sidebar icon to cancel one — refunds**;
+multiple Barracks/War Factories build in parallel) · minimap to jump · **arrows/edge/minimap pan** (WASD
 freed for commands). Unit commands (selection): `A` attack-move · `S` stop · `H` hold · `G`
 guard · or use the on-screen command bar (incl. stance: Aggressive/Guard/Hold-Ground/Hold-Fire).
 **Rally points:** select a friendly producer (yard/barracks/factory/helipad) with no units

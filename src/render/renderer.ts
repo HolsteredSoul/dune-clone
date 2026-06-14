@@ -24,6 +24,44 @@ const C = {
   spice: '#d8742a', spiceRich: '#a8481a',
 };
 
+// Building sprites: drop a `building-<id>.png` (top-down, sized footprint×TILE, transparent
+// background — see assets/sprites/*.md specs) into assets/sprites/ and it is auto-discovered
+// here, no other code change needed. A building with no matching sprite falls back to the
+// procedural rectangle. Sprites replace only the base art; the engine still draws the owner
+// border, HP bar, turret head, muzzle flash, selection ring, and name label on top.
+const SPRITE_URLS = import.meta.glob('../../assets/sprites/building-*.png', {
+  eager: true, query: '?url', import: 'default',
+}) as Record<string, string>;
+const buildingSprites: Record<string, HTMLImageElement> = {};
+for (const [path, url] of Object.entries(SPRITE_URLS)) {
+  const m = path.match(/building-(.+)\.png$/);
+  if (!m) continue;
+  const img = new Image();
+  img.src = url;
+  buildingSprites[m[1]] = img; // drawn once img.complete && naturalWidth > 0
+}
+
+// Effect sprite-sheets (explosions, etc.): drop `fx-<name>.png` into assets/sprites/ as a
+// horizontal strip of SQUARE frames; the engine infers frameCount = width/height and plays the
+// strip across the effect's lifetime. `fx-explosion.png` animates every blast (scaled by size);
+// an optional `fx-explosion-large.png` is preferred for building blasts. No sheet → the
+// procedural blast below is drawn instead.
+const FX_URLS = import.meta.glob('../../assets/sprites/fx-*.png', {
+  eager: true, query: '?url', import: 'default',
+}) as Record<string, string>;
+const fxSprites: Record<string, HTMLImageElement> = {};
+for (const [path, url] of Object.entries(FX_URLS)) {
+  const m = path.match(/fx-(.+)\.png$/);
+  if (!m) continue;
+  const img = new Image();
+  img.src = url;
+  fxSprites[m[1]] = img;
+}
+function fxReady(name: string): HTMLImageElement | null {
+  const img = fxSprites[name];
+  return img && img.complete && img.naturalWidth > 0 ? img : null;
+}
+
 export class Renderer {
   constructor(private readonly ctx: CanvasRenderingContext2D) {}
 
@@ -124,10 +162,16 @@ export class Renderer {
     const sy = b.ty * TILE - cam.y;
     const w = b.def.w * TILE, h = b.def.h * TILE;
 
-    ctx.fillStyle = b.def.color;
-    ctx.fillRect(sx, sy, w, h);
-    ctx.fillStyle = b.def.trim;
-    ctx.fillRect(sx + 3, sy + 3, w - 6, h - 6);
+    const sprite = buildingSprites[b.def.id];
+    const hasSprite = !!sprite && sprite.complete && sprite.naturalWidth > 0;
+    if (hasSprite) {
+      ctx.drawImage(sprite, sx, sy, w, h);
+    } else {
+      ctx.fillStyle = b.def.color;
+      ctx.fillRect(sx, sy, w, h);
+      ctx.fillStyle = b.def.trim;
+      ctx.fillRect(sx + 3, sy + 3, w - 6, h - 6);
+    }
     // owner edge
     ctx.strokeStyle = b.owner === 'player' ? PLAYER : ENEMY;
     ctx.lineWidth = 2;
@@ -139,9 +183,22 @@ export class Renderer {
       ctx.arc(sx + w / 2, sy + h / 2, Math.min(w, h) * 0.28, 0, Math.PI * 2);
       ctx.fill();
     }
-    ctx.fillStyle = '#cdd6df';
-    ctx.font = '9px monospace';
-    ctx.fillText(b.def.name.slice(0, 10), sx + 4, sy + 12);
+    // Name tag — a small pill centred just above the building (kept off the sprite art so it
+    // reads cleanly), faction-tinted border. Shown for every visible building.
+    ctx.font = 'bold 8px monospace';
+    const label = b.def.name;
+    const tagW = Math.ceil(ctx.measureText(label).width) + 8, tagH = 11;
+    const tagX = Math.round(sx + w / 2 - tagW / 2);
+    const tagY = sy - tagH - 6;
+    ctx.fillStyle = 'rgba(8,10,14,0.72)';
+    ctx.fillRect(tagX, tagY, tagW, tagH);
+    ctx.strokeStyle = b.owner === 'player' ? 'rgba(70,212,110,0.55)' : 'rgba(224,82,74,0.55)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(tagX + 0.5, tagY + 0.5, tagW - 1, tagH - 1);
+    ctx.fillStyle = '#e8edf2';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, sx + w / 2, tagY + 8);
+    ctx.textAlign = 'left';
 
     if (view.selectedBuilding === b) {
       ctx.strokeStyle = '#ffffff';
@@ -216,7 +273,7 @@ export class Renderer {
     ctx.fillStyle = edge;
     ctx.fillRect(sx - 1, sy - r - 4, 2, 2);
 
-    if (u.hp < u.def.maxHp) this.hpBar(sx - r, sy - r - 5, r * 2, u.hp / u.def.maxHp);
+    if (u.hp < u.maxHp) this.hpBar(sx - r, sy - r - 5, r * 2, u.hp / u.maxHp);
   }
 
   private hpBar(x: number, y: number, w: number, frac: number): void {
@@ -237,12 +294,52 @@ export class Renderer {
 
   private drawEffect(e: { x: number; y: number; ttl: number; max: number; size: number }, cam: Camera): void {
     const ctx = this.ctx;
-    const t = e.ttl / e.max;
-    const radius = e.size * (1 - t * 0.5);
-    ctx.fillStyle = `rgba(255,${Math.floor(140 + 80 * t)},40,${t * 0.8})`;
+    const p = 1 - e.ttl / e.max;               // 0 at the blast, 1 when it has fully faded
+    const cx = e.x - cam.x, cy = e.y - cam.y;
+    const big = e.size >= 30;                   // buildings (size 36) vs units (16)
+
+    // Sprite-sheet path: play the horizontal strip of square frames across the effect's life.
+    const sheet = (big && fxReady('explosion-large')) || fxReady('explosion');
+    if (sheet) {
+      const fs = sheet.naturalHeight;
+      const frames = Math.max(1, Math.round(sheet.naturalWidth / fs));
+      const frame = Math.min(frames - 1, Math.floor(p * frames));
+      const draw = e.size * 2.6;
+      ctx.drawImage(sheet, frame * fs, 0, fs, fs, cx - draw / 2, cy - draw / 2, draw, draw);
+      return;
+    }
+
+    // Procedural fallback: shockwave ring + fireball core + a hot flash, plus debris for buildings.
+    const fade = 1 - p;
+    ctx.strokeStyle = `rgba(255,180,80,${0.5 * fade})`;
+    ctx.lineWidth = Math.max(1, e.size * 0.16 * fade);
     ctx.beginPath();
-    ctx.arc(e.x - cam.x, e.y - cam.y, radius, 0, Math.PI * 2);
+    ctx.arc(cx, cy, e.size * (0.4 + 1.3 * p), 0, Math.PI * 2);
+    ctx.stroke();
+
+    const core = Math.max(1, e.size * (1 - 0.5 * p));
+    ctx.fillStyle = `rgba(255,${Math.max(40, Math.floor(210 - 150 * p))},${Math.max(20, Math.floor(120 - 100 * p))},${0.9 * fade})`;
+    ctx.beginPath();
+    ctx.arc(cx, cy, core, 0, Math.PI * 2);
     ctx.fill();
+
+    if (p < 0.4) {                              // bright white-hot flash in the first instants
+      ctx.fillStyle = `rgba(255,245,200,${0.9 * (1 - p / 0.4)})`;
+      ctx.beginPath();
+      ctx.arc(cx, cy, e.size * 0.5 * (1 - p), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    if (big) {                                  // debris flung outward (deterministic per blast)
+      const s = Math.max(1, e.size * 0.12 * fade);
+      for (let i = 0; i < 7; i++) {
+        const ang = i * 2.39996 + cx * 0.01 + cy * 0.013; // golden angle, seeded by position
+        const dist = e.size * (0.6 + 2.0 * p);
+        const dx = Math.cos(ang) * dist, dy = Math.sin(ang) * dist - p * e.size * 0.4;
+        ctx.fillStyle = `rgba(60,50,40,${0.8 * fade})`;
+        ctx.fillRect(cx + dx - s / 2, cy + dy - s / 2, s, s);
+      }
+    }
   }
 
   private drawRally(b: Building, cam: Camera): void {

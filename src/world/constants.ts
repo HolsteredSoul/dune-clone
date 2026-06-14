@@ -14,8 +14,12 @@ export const SIDEBAR_W = 200;          // px width of the right-hand command sid
 // --- Economy ---
 export const HARVESTER_CAPACITY = 500; // spice units a harvester can carry
 export const HARVEST_RATE = 260;       // spice mined per second while harvesting
+export const HARVEST_LEASH = 4;        // tiles (~harvester sight): when a tile runs dry, keep
+                                       // mining spice within this radius; else bank load + seek a new patch
 export const UNLOAD_RATE = 900;        // spice unloaded per second at the refinery
-export const SPICE_PER_CREDIT = 1;     // spice-to-credit conversion (1:1)
+export const SPICE_PER_CREDIT = 1.25;  // spice-to-credit conversion. Tuned with the smarter
+                                       // (fuller-trip) harvesters: trims yield-per-load so the
+                                       // economy tempo sits near the sim-verified ladder.
 export const SPICE_PER_TILE = 1000;    // full spice content of a spice tile
 export const STARTING_CREDITS = 2000;
 

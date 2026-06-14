@@ -4,9 +4,9 @@
 // entities themselves.
 
 import {
-  TILE, MAP_W, MAP_H, HARVEST_RATE, HARVESTER_CAPACITY, UNLOAD_RATE, SPICE_PER_CREDIT,
-  MIN_POWER_FACTOR, SEPARATION_RADIUS, SEPARATION_FORCE, CORPSE_TTL, FOG_REFRESH,
-  GUARD_LEASH, AGGRO_LEASH,
+  TILE, MAP_W, MAP_H, HARVEST_RATE, HARVESTER_CAPACITY, HARVEST_LEASH, UNLOAD_RATE,
+  SPICE_PER_CREDIT, MIN_POWER_FACTOR, SEPARATION_RADIUS, SEPARATION_FORCE, CORPSE_TTL,
+  FOG_REFRESH, GUARD_LEASH, AGGRO_LEASH,
 } from './constants';
 import { TileMap, Terrain } from './tilemap';
 import { Building } from './building';
@@ -14,8 +14,8 @@ import { Unit } from './unit';
 import { Projectile } from './projectile';
 import { Player } from './player';
 import { Fog } from './fog';
-import { BUILDINGS, UNITS, DIFFICULTY } from './defs';
-import type { BuildingDef, Faction, Stance, Difficulty } from './defs';
+import { BUILDINGS, UNITS, DIFFICULTY, UPGRADES, damageMultiplier } from './defs';
+import type { BuildingDef, Faction, Stance, Difficulty, ArmorClass, WeaponDef } from './defs';
 import { findPath, nearestOpen } from '../core/astar';
 
 export type Combatant = Unit | Building;
@@ -76,9 +76,8 @@ export class World {
 
     for (const u of config.units) {
       const def = UNITS[u.defId];
-      const unit = new Unit(def, u.faction, (u.tx + 0.5) * TILE, (u.ty + 0.5) * TILE);
+      const unit = this.spawnUnit(def, u.faction, (u.tx + 0.5) * TILE, (u.ty + 0.5) * TILE);
       if (def.harvester) unit.order = { kind: 'harvest' };
-      this.units.push(unit);
     }
 
     if (!config.fog) this.fog.revealAll();
@@ -188,6 +187,49 @@ export class World {
     return true;
   }
 
+  /** Create a unit, register it, and bake in the owner's current upgrade multipliers. */
+  private spawnUnit(def: typeof UNITS[string], faction: Faction, x: number, y: number): Unit {
+    const u = new Unit(def, faction, x, y);
+    this.applyUpgradeStats(u);
+    this.units.push(u);
+    return u;
+  }
+
+  /** (Re)derive a unit's upgrade-scaled stats from its owner's purchased upgrades. Always
+   *  computed from the base def (never compounded), so re-applying on a new purchase is safe. */
+  private applyUpgradeStats(u: Unit): void {
+    if (u.def.kind !== 'vehicle') return;       // HP/speed upgrades are vehicle-only
+    const p = this.player_(u.owner);
+    const frac = u.maxHp > 0 ? u.hp / u.maxHp : 1;
+    u.maxHp = u.def.maxHp * p.upgradeMult('vehicleHpMult');
+    u.hp = u.maxHp * frac;
+    u.speedMult = p.upgradeMult('vehicleSpeedMult');
+  }
+
+  // ---- upgrades ----------------------------------------------------------------------------
+
+  canPurchaseUpgrade(faction: Faction, id: string): boolean {
+    const def = UPGRADES[id];
+    if (!def) return false;
+    const p = this.player_(faction);
+    return !p.upgrades.has(id)
+      && this.ownedTypes(faction).has(def.requires)
+      && p.credits >= def.cost;
+  }
+
+  purchaseUpgrade(faction: Faction, id: string): boolean {
+    if (!this.canPurchaseUpgrade(faction, id)) return false;
+    const def = UPGRADES[id];
+    const p = this.player_(faction);
+    p.credits -= def.cost;
+    p.upgrades.add(id);
+    // HP/speed are baked per-unit, so retro-apply to every existing unit of this faction.
+    if (def.effect === 'vehicleHpMult' || def.effect === 'vehicleSpeedMult') {
+      for (const u of this.units) if (u.owner === faction) this.applyUpgradeStats(u);
+    }
+    return true;
+  }
+
   /** Validity of placing `def` for `faction` with top-left at (tx,ty). */
   canPlace(faction: Faction, def: BuildingDef, tx: number, ty: number): boolean {
     for (let y = ty; y < ty + def.h; y++) {
@@ -219,6 +261,38 @@ export class World {
     if (p.ready) { p.credits += BUILDINGS[p.ready].cost; p.ready = null; }
   }
 
+  /** Cancel one queued unit of `defId` (full refund). Scans from the back so repeated cancels
+   *  peel the rear of the queue without interrupting the near-finished front items. */
+  cancelUnit(faction: Faction, defId: string): boolean {
+    const p = this.player_(faction);
+    const q = p.unitQueues.get(UNITS[defId].builtAt);
+    if (!q) return false;
+    for (let i = q.length - 1; i >= 0; i--) {
+      if (q[i].defId === defId) {
+        p.credits += q[i].cost;
+        q.splice(i, 1);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Cancel a structure that is ready-to-place or in progress (full refund). */
+  cancelStructure(faction: Faction, defId: string): boolean {
+    const p = this.player_(faction);
+    if (p.ready === defId) {
+      p.credits += BUILDINGS[defId].cost;
+      p.ready = null;
+      return true;
+    }
+    if (p.building && p.building.defId === defId) {
+      p.credits += p.building.cost;
+      p.building = null;
+      return true;
+    }
+    return false;
+  }
+
   /** Set a producer building's rally point (snapped to a reachable tile center). */
   setRally(b: Building, wx: number, wy: number): void {
     if (!b.isProducer) return;
@@ -247,21 +321,17 @@ export class World {
     }
     this.rebuildBlocked();
     if (spawnHarvester && def.spawnsHarvester) {
-      const u = new Unit(UNITS.harvester, faction, b.exitX, b.exitY);
+      const u = this.spawnUnit(UNITS.harvester, faction, b.exitX, b.exitY);
       u.order = { kind: 'harvest' };
-      this.units.push(u);
     }
     return b;
   }
 
-  private completeUnit(faction: Faction, defId: string, builtAt: string): void {
-    const producer = this.buildings.find((b) => b.owner === faction && b.def.id === builtAt);
-    if (!producer) return;
+  private completeUnit(faction: Faction, defId: string, producer: Building): void {
     const def = UNITS[defId];
     const exitTile = nearestOpen(this.blocked,
       Math.floor(producer.exitX / TILE), Math.floor(producer.exitY / TILE));
-    const u = new Unit(def, faction, (exitTile.tx + 0.5) * TILE, (exitTile.ty + 0.5) * TILE);
-    this.units.push(u);
+    const u = this.spawnUnit(def, faction, (exitTile.tx + 0.5) * TILE, (exitTile.ty + 0.5) * TILE);
 
     const rx = producer.rallyX, ry = producer.rallyY;
     if (rx === null || ry === null) {
@@ -419,12 +489,28 @@ export class World {
     }
     for (const [builtAt, q] of p.unitQueues) {
       if (q.length === 0) continue;
-      if (!this.ownedTypes(p.faction).has(builtAt)) continue;
-      const item = q[0];
-      item.progress += (dt * f) / Math.max(0.01, item.time);
-      if (item.progress >= 1) {
-        q.shift();
-        this.completeUnit(p.faction, item.defId, builtAt);
+      // N producer buildings of this type build the first N queued items concurrently, so a
+      // second Barracks/War Factory actually doubles throughput.
+      const producers = this.buildings.filter(
+        (b) => b.owner === p.faction && b.def.id === builtAt && b.alive);
+      if (producers.length === 0) continue;
+      let slots = Math.min(producers.length, q.length);
+      for (let i = 0; i < slots; i++) {
+        q[i].progress += (dt * f) / Math.max(0.01, q[i].time);
+      }
+      // Finish any completed items within the advanced window, distributing the spawned units
+      // across the producer buildings round-robin (so each exits at — and rallies from — the
+      // building that built it). Handles out-of-order completion (a cheaper item ahead may
+      // finish before a slower one in the same window).
+      let prodIdx = 0;
+      for (let i = 0; i < slots; i++) {
+        if (q[i] && q[i].progress >= 1) {
+          const item = q[i];
+          q.splice(i, 1);
+          this.completeUnit(p.faction, item.defId, producers[prodIdx % producers.length]);
+          prodIdx++;
+          i--; slots--; // a slot in the advanced window was consumed
+        }
       }
     }
   }
@@ -541,18 +627,32 @@ export class World {
   }
 
   private engage(u: Unit, target: Combatant, dt: number): void {
-    if (!u.def.weapon) { this.becomeIdle(u); return; }
+    const w = u.def.weapon;
+    if (!w) { this.becomeIdle(u); return; }
+    // Can't engage a flyer without an anti-air weapon — stand down rather than chase forever.
+    if (target.entityKind === 'unit' && target.def.flying && !canHitAir(w)) {
+      this.becomeIdle(u);
+      return;
+    }
+    const cx = centerX(target), cy = centerY(target);
+    // A min-range weapon caught too close backs off to re-open the firing gap (artillery kite).
+    if (w.minRange && (cx - u.x) ** 2 + (cy - u.y) ** 2 < w.minRange * w.minRange) {
+      const ang = Math.atan2(u.y - cy, u.x - cx);
+      u.clearPath();
+      u.stepToward(u.x + Math.cos(ang) * TILE, u.y + Math.sin(ang) * TILE, dt);
+      return;
+    }
     if (this.inWeaponRange(u, target)) {
       u.clearPath();
       this.tryFire(u, target);
     } else if (u.def.flying) {
-      u.stepToward(centerX(target), centerY(target), dt);
+      u.stepToward(cx, cy, dt);
     } else {
-      this.ensurePathTo(u, Math.floor(centerX(target) / TILE), Math.floor(centerY(target) / TILE));
+      this.ensurePathTo(u, Math.floor(cx / TILE), Math.floor(cy / TILE));
       // If no route exists (e.g. the unit spawned in a base pocket the A* can't escape, or the
       // target is enclosed), nudge straight toward it so the unit never freezes — separation
       // slides it along walls until it reaches open ground and can path normally again.
-      if (u.path.length === 0) u.stepToward(centerX(target), centerY(target), dt);
+      if (u.path.length === 0) u.stepToward(cx, cy, dt);
       else u.followPath(dt);
     }
   }
@@ -577,10 +677,26 @@ export class World {
         if (!u.spiceTile) { u.harvestPhase = 'toSpice'; return; }
         const got = this.map.mineAt(u.spiceTile.tx, u.spiceTile.ty, HARVEST_RATE * dt);
         u.load += got;
-        if (got <= 0 || u.load >= HARVESTER_CAPACITY) {
+        // Full: prioritise returning to bank the load — don't keep topping off.
+        if (u.load >= HARVESTER_CAPACITY) {
           u.spiceTile = null;
           u.clearPath();
-          u.harvestPhase = u.load > 0 ? 'toRefinery' : 'toSpice';
+          u.harvestPhase = 'toRefinery';
+          return;
+        }
+        // Tile ran dry before we filled up: keep mining if there's more spice within the visual
+        // leash; otherwise bank what we have (and find a fresh patch after unloading).
+        if (got <= 0) {
+          u.spiceTile = null;
+          u.clearPath();
+          const next = this.map.nearestSpice(u.x, u.y);
+          const leash = HARVEST_LEASH * TILE;
+          if (next && Math.hypot((next.tx + 0.5) * TILE - u.x, (next.ty + 0.5) * TILE - u.y) <= leash) {
+            u.spiceTile = next;
+            u.harvestPhase = 'toSpice';
+          } else {
+            u.harvestPhase = u.load > 0 ? 'toRefinery' : 'toSpice';
+          }
         }
         return;
       }
@@ -597,7 +713,8 @@ export class World {
         if (!ref) { u.harvestPhase = 'toSpice'; return; }
         const amt = Math.min(u.load, UNLOAD_RATE * dt);
         u.load -= amt;
-        this.player_(u.owner).credits += amt / SPICE_PER_CREDIT;
+        const p = this.player_(u.owner);
+        p.credits += (amt / SPICE_PER_CREDIT) * p.upgradeMult('harvestMult');
         if (u.load <= 0) { u.load = 0; u.harvestPhase = 'toSpice'; }
         return;
       }
@@ -619,9 +736,10 @@ export class World {
     const range = sightTiles * TILE;
     let best: Combatant | null = null;
     let bestD = range * range;
+    const hitsAir = canHitAir(u.def.weapon);
     for (const e of this.units) {
       if (e.owner === u.owner || !e.alive) continue;
-      if (e.def.flying && !u.def.weapon) continue;
+      if (e.def.flying && !hitsAir) continue;
       const d = (e.x - u.x) ** 2 + (e.y - u.y) ** 2;
       if (d < bestD) { bestD = d; best = e; }
     }
@@ -643,28 +761,32 @@ export class World {
   }
 
   private inWeaponRange(u: Unit, t: Combatant): boolean {
-    const range = u.def.weapon!.range + targetRadius(t);
-    return (centerX(t) - u.x) ** 2 + (centerY(t) - u.y) ** 2 <= range * range;
+    const w = u.def.weapon!;
+    const d2 = (centerX(t) - u.x) ** 2 + (centerY(t) - u.y) ** 2;
+    const max = w.range + targetRadius(t);
+    if (d2 > max * max) return false;
+    if (w.minRange && d2 < w.minRange * w.minRange) return false; // too close (artillery)
+    return true;
   }
 
   private tryFire(u: Unit, t: Combatant): void {
     if (u.cooldown > 0) return;
     const w = u.def.weapon!;
     u.facing = Math.atan2(centerY(t) - u.y, centerX(t) - u.x);
-    this.fire(u.owner, w.damage, w.range, w.splash, u.x, u.y, t,
-      u.def.weapon!.projectileSpeed, w.color);
+    this.fire(u.owner, w, u.x, u.y, t);
     u.cooldown = w.cooldown;
     u.muzzleFlash = 0.08;
   }
 
-  private fire(owner: Faction, damage: number, _range: number, splash: number | undefined,
-               fromX: number, fromY: number, target: Combatant, projSpeed: number,
-               color: string): void {
+  /** Apply a weapon's hit: armor-scaled damage to the target (+ splash), and a visual tracer.
+   *  Damage = base × owner's damage upgrade × DAMAGE_VS_ARMOR[type][target armor]. */
+  private fire(owner: Faction, weapon: WeaponDef, fromX: number, fromY: number,
+               target: Combatant): void {
     const tx = centerX(target), ty = centerY(target);
-    this.damage(target, damage);
-    if (splash) this.splash(owner, tx, ty, splash, damage * 0.5, target.id);
-    this.projectiles.push(new Projectile(owner,
-      { damage, range: 0, cooldown: 0, projectileSpeed: projSpeed, color }, fromX, fromY, tx, ty));
+    const base = weapon.damage * this.player_(owner).upgradeMult('damageMult');
+    this.damage(target, base * damageMultiplier(weapon.type, armorOf(target)));
+    if (weapon.splash) this.splash(owner, weapon, base, tx, ty, target.id);
+    this.projectiles.push(new Projectile(owner, weapon, fromX, fromY, tx, ty));
   }
 
   private damage(target: Combatant, amount: number): void {
@@ -678,12 +800,15 @@ export class World {
     }
   }
 
-  private splash(owner: Faction, x: number, y: number, radius: number, amount: number,
+  private splash(owner: Faction, weapon: WeaponDef, base: number, x: number, y: number,
                  skipId: number): void {
+    const radius = weapon.splash!;
     const r2 = radius * radius;
     for (const e of this.units) {
       if (e.owner === owner || !e.alive || e.id === skipId) continue;
-      if ((e.x - x) ** 2 + (e.y - y) ** 2 <= r2) this.damage(e, amount);
+      if ((e.x - x) ** 2 + (e.y - y) ** 2 <= r2) {
+        this.damage(e, base * 0.5 * damageMultiplier(weapon.type, e.def.armor));
+      }
     }
   }
 
@@ -695,10 +820,8 @@ export class World {
       if (b.cooldown > 0) continue;
       const t = this.nearestEnemyInRange(b);
       if (t) {
-        const w = b.def.weapon;
-        this.fire(b.owner, w.damage, w.range, w.splash, b.centerX, b.centerY, t,
-          w.projectileSpeed, w.color);
-        b.cooldown = w.cooldown;
+        this.fire(b.owner, b.def.weapon, b.centerX, b.centerY, t);
+        b.cooldown = b.def.weapon.cooldown;
         b.muzzleFlash = 0.1;
       }
     }
@@ -706,10 +829,12 @@ export class World {
 
   private nearestEnemyInRange(b: Building): Combatant | null {
     const range = b.def.weapon!.range;
+    const hitsAir = canHitAir(b.def.weapon);
     let best: Combatant | null = null;
     let bestD = Infinity;
     for (const e of this.units) {
       if (e.owner === b.owner || !e.alive) continue;
+      if (e.def.flying && !hitsAir) continue;
       const d = Math.hypot(e.x - b.centerX, e.y - b.centerY);
       if (d <= range + e.def.radius && d < bestD) { bestD = d; best = e; }
     }
@@ -808,4 +933,10 @@ export function centerY(e: Combatant): number {
 }
 function targetRadius(e: Combatant): number {
   return e.entityKind === 'unit' ? e.def.radius : Math.max(e.def.w, e.def.h) * TILE * 0.5;
+}
+function armorOf(e: Combatant): ArmorClass {
+  return e.entityKind === 'unit' ? e.def.armor : 'building';
+}
+function canHitAir(weapon: WeaponDef | undefined): boolean {
+  return !!weapon?.canTargetAir;
 }

@@ -34,14 +34,17 @@ function playerCore(extra: B[] = [], extraU: U[] = []): { b: B[]; u: U[] } {
 }
 
 const MISSION_1: MissionConfig = (() => {
-  const p = playerCore();
+  const p = playerCore([
+    { faction: 'player', defId: 'barracks', tx: 12, ty: 46 },
+  ]);
   return {
     name: 'Mission 1 — Foothold',
-    brief: 'Establish your economy and destroy the enemy base to the north-east. '
-      + 'Build a Barracks for infantry, mass a force, and push out before their waves build up.',
+    brief: 'Establish your economy and destroy the enemy base to the north-east. Your Barracks '
+      + 'trains infantry and Rocket Troopers (your anti-armour answer) — mass a mixed force and '
+      + 'push out before their waves build up.',
     fog: true,
     aggression: 0.82,
-    playerCredits: 2600,
+    playerCredits: 3000,
     enemyCredits: 1700,
     cameraStart: { tx: 10, ty: 48 },
     spiceFields: SPICE,
@@ -73,12 +76,13 @@ const MISSION_2: MissionConfig = (() => {
   ]);
   return {
     name: 'Mission 2 — Escalation',
-    brief: 'The enemy is dug in with a War Factory and armour. Build your own Factory '
-      + '(via Radar), bring tanks, and use Hold-Ground turrets to break their attacks.',
+    brief: 'The enemy is dug in with a War Factory and armour — including Rocket Troopers that '
+      + 'melt tanks. Build your own Factory (via Radar), mix Rocket Troopers with tanks, and '
+      + 'use Hold-Ground turrets to break their attacks. The Radar also unlocks combat Upgrades.',
     fog: true,
     aggression: 1.0,
-    playerCredits: 2900,
-    enemyCredits: 1850,
+    playerCredits: 3600,
+    enemyCredits: 1750,
     cameraStart: { tx: 10, ty: 48 },
     spiceFields: SPICE,
     buildings: [
@@ -96,7 +100,7 @@ const MISSION_2: MissionConfig = (() => {
       ...p.u,
       { faction: 'enemy', defId: 'harvester', tx: 51, ty: 11 },
       { faction: 'enemy', defId: 'harvester', tx: 52, ty: 11 },
-      { faction: 'enemy', defId: 'infantry', tx: 46, ty: 12 },
+      { faction: 'enemy', defId: 'rocket', tx: 46, ty: 12 },
       { faction: 'enemy', defId: 'infantry', tx: 45, ty: 12 },
       { faction: 'enemy', defId: 'tank', tx: 44, ty: 11 },
       { faction: 'enemy', defId: 'tank', tx: 43, ty: 11 },
@@ -120,12 +124,13 @@ const MISSION_3: MissionConfig = (() => {
   return {
     name: 'Mission 3 — Stronghold',
     brief: 'The enemy is dug in at full strength — a War Factory, armour, and gun turrets, '
-      + 'with their economy running hot. Mass tanks, hold the line against their waves, and '
-      + 'grind down their headquarters. (Build a Helipad for Ornithopters of your own.)',
+      + 'with their economy running hot. Mass tanks, build Artillery to outrange their turret '
+      + 'line, hold against their waves, and grind down their HQ. (Helipad = Ornithopters; '
+      + 'Radar = Upgrades.)',
     fog: true,
     aggression: 0.95,
-    playerCredits: 3800,
-    enemyCredits: 1800,
+    playerCredits: 3750,
+    enemyCredits: 1850,
     cameraStart: { tx: 10, ty: 48 },
     spiceFields: SPICE,
     buildings: [
@@ -143,7 +148,8 @@ const MISSION_3: MissionConfig = (() => {
       ...p.u,
       { faction: 'enemy', defId: 'harvester', tx: 51, ty: 14 },
       { faction: 'enemy', defId: 'tank', tx: 45, ty: 12 },
-      { faction: 'enemy', defId: 'infantry', tx: 48, ty: 12 },
+      { faction: 'enemy', defId: 'tank', tx: 44, ty: 13 },
+      { faction: 'enemy', defId: 'rocket', tx: 48, ty: 12 },
     ],
   };
 })();

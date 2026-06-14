@@ -142,7 +142,11 @@ export class Game {
   private onRightDown(x: number, y: number): void {
     if (this.placing) { this.placing = null; return; }
     if (this.pendingAttackMove) { this.pendingAttackMove = false; return; }
-    if (this.ui.isInSidebar(x)) return;
+    if (this.ui.isInSidebar(x)) {
+      const action = this.ui.hitTest(x, y, this.cam);
+      if (action) this.doUiCancel(action);
+      return;
+    }
     const units = this.selectedUnits();
     if (units.length > 0) {
       this.world.commandSmart(units, this.cam.x + x, this.cam.y + y);
@@ -185,6 +189,8 @@ export class Game {
       this.cam.centerOn(action.wx, action.wy);
     } else if (action.type === 'unit') {
       this.world.queueUnit('player', action.id);
+    } else if (action.type === 'upgrade') {
+      this.world.purchaseUpgrade('player', action.id);
     } else if (action.type === 'structure') {
       if (this.world.player.ready === action.id) {
         this.placing = BUILDINGS[action.id];
@@ -200,6 +206,14 @@ export class Game {
     } else if (action.type === 'stance') {
       this.world.setStance(this.selectedUnits(), action.stance);
     }
+  }
+
+  /** Right-click in the sidebar cancels one queued item with a full refund. Upgrades are
+   *  permanent and non-refundable, so they're ignored. */
+  private doUiCancel(action: ReturnType<Ui['hitTest']>): void {
+    if (!action) return;
+    if (action.type === 'unit') this.world.cancelUnit('player', action.id);
+    else if (action.type === 'structure') this.world.cancelStructure('player', action.id);
   }
 
   private tryPlace(x: number, y: number): void {

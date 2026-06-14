@@ -3,7 +3,8 @@
 // here, so they can't drift.
 
 import { STARTING_CREDITS } from './constants';
-import type { Faction } from './defs';
+import { UPGRADES } from './defs';
+import type { Faction, UpgradeEffect } from './defs';
 
 export interface BuildItem {
   defId: string;
@@ -22,11 +23,24 @@ export class Player {
   // Units queue per producing building type (e.g. 'barracks', 'factory', 'helipad').
   unitQueues = new Map<string, BuildItem[]>();
 
+  // Purchased one-time upgrades (ids into UPGRADES). Drive permanent faction multipliers.
+  readonly upgrades = new Set<string>();
+
   constructor(readonly faction: Faction) {}
 
   enqueueUnit(builtAt: string, item: BuildItem): void {
     const q = this.unitQueues.get(builtAt);
     if (q) q.push(item);
     else this.unitQueues.set(builtAt, [item]);
+  }
+
+  /** Product of every owned upgrade that contributes to the given effect (1.0 if none). */
+  upgradeMult(effect: UpgradeEffect): number {
+    let m = 1;
+    for (const id of this.upgrades) {
+      const u = UPGRADES[id];
+      if (u && u.effect === effect) m *= u.value;
+    }
+    return m;
   }
 }

@@ -5,11 +5,11 @@
 import type { World } from '../world/world';
 import type { Camera } from '../core/camera';
 import type { Unit } from '../world/unit';
-import { BUILDINGS, UNITS, BUILD_MENU_ORDER, STANCE_LABEL, DIFFICULTY, DIFFICULTY_ORDER } from '../world/defs';
+import { BUILDINGS, UNITS, UPGRADES, BUILD_MENU_ORDER, UPGRADE_ORDER, STANCE_LABEL, DIFFICULTY, DIFFICULTY_ORDER } from '../world/defs';
 import type { Stance, Difficulty } from '../world/defs';
 import { SIDEBAR_W, TILE, MAP_W, MAP_H } from '../world/constants';
 
-const UNIT_ICON_ORDER = ['infantry', 'harvester', 'tank', 'aircraft'];
+const UNIT_ICON_ORDER = ['infantry', 'rocket', 'scout', 'harvester', 'tank', 'artillery', 'aircraft'];
 const COMMANDS = [
   { cmd: 'attackmove', label: 'A-Move' },
   { cmd: 'stop', label: 'Stop' },
@@ -23,6 +23,7 @@ export type CommandKind = 'attackmove' | 'stop' | 'hold' | 'guard';
 export type UiAction =
   | { type: 'structure'; id: string }
   | { type: 'unit'; id: string }
+  | { type: 'upgrade'; id: string }
   | { type: 'minimap'; wx: number; wy: number }
   | { type: 'command'; cmd: CommandKind }
   | { type: 'stance'; stance: Stance }
@@ -33,6 +34,7 @@ export type Overlay = 'none' | 'brief' | 'won' | 'lost';
 export class Ui {
   private structRects: { id: string; rect: Rect }[] = [];
   private unitRects: { id: string; rect: Rect }[] = [];
+  private upgradeRects: { id: string; rect: Rect }[] = [];
   private cmdRects: { cmd: CommandKind; rect: Rect }[] = [];
   private stanceRects: { stance: Stance; rect: Rect }[] = [];
   private diffRects: { d: Difficulty; rect: Rect }[] = [];
@@ -99,7 +101,15 @@ export class Ui {
     y = this.section('UNITS', y);
     this.unitRects = [];
     const unitIds = UNIT_ICON_ORDER.filter((id) => world.ownedTypes('player').has(UNITS[id].builtAt));
-    this.iconGrid(unitIds, y, (id) => this.unitState(world, id), this.unitRects);
+    y = this.iconGrid(unitIds, y, (id) => this.unitState(world, id), this.unitRects);
+
+    // Upgrades — appear once the player owns the tech building (Radar Outpost).
+    this.upgradeRects = [];
+    if (world.ownedTypes('player').has('radar')) {
+      y += 6;
+      y = this.section('UPGRADES', y);
+      this.iconGrid(UPGRADE_ORDER, y, (id) => this.upgradeState(world, id), this.upgradeRects);
+    }
   }
 
   private section(title: string, y: number): number {
@@ -132,21 +142,27 @@ export class Ui {
   private drawIcon(ctx: CanvasRenderingContext2D, r: Rect, s: IconState): void {
     ctx.fillStyle = s.color;
     ctx.fillRect(r.x, r.y, r.w, r.h);
-    ctx.strokeStyle = s.ready ? '#ffd479' : s.enabled ? '#5a6470' : '#2a2e36';
-    ctx.lineWidth = s.ready ? 2 : 1;
+    ctx.strokeStyle = s.owned ? '#7fe39a' : s.ready ? '#ffd479' : s.enabled ? '#5a6470' : '#2a2e36';
+    ctx.lineWidth = s.ready || s.owned ? 2 : 1;
     ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
 
     if (s.progress > 0 && s.progress < 1) {
       ctx.fillStyle = 'rgba(0,0,0,0.6)';
       ctx.fillRect(r.x, r.y + r.h * (1 - s.progress), r.w, r.h * s.progress);
     }
-    ctx.fillStyle = s.enabled || s.progress > 0 ? '#e8edf2' : '#5a6470';
+    ctx.fillStyle = s.enabled || s.progress > 0 || s.owned ? '#e8edf2' : '#5a6470';
     ctx.font = 'bold 10px monospace';
     ctx.fillText(s.label.slice(0, 11), r.x + 4, r.y + 14);
-    ctx.font = '9px monospace';
-    ctx.fillStyle = '#cbb06a';
-    ctx.fillText(`$${s.cost}`, r.x + 4, r.y + 27);
-    if (s.ready) {
+    if (!s.owned) {
+      ctx.font = '9px monospace';
+      ctx.fillStyle = '#cbb06a';
+      ctx.fillText(`$${s.cost}`, r.x + 4, r.y + 27);
+    }
+    if (s.owned) {
+      ctx.fillStyle = '#7fe39a';
+      ctx.font = '9px monospace';
+      ctx.fillText('OWNED', r.x + 4, r.y + 38);
+    } else if (s.ready) {
       ctx.fillStyle = '#ffd479';
       ctx.fillText('READY', r.x + 4, r.y + 38);
     } else if (s.queue > 1) {
@@ -176,6 +192,16 @@ export class Ui {
       label: def.name, cost: def.cost, color: def.color,
       enabled: world.canQueueUnit('player', id),
       ready: false, progress: head, queue: mine.length,
+    };
+  }
+
+  private upgradeState(world: World, id: string): IconState {
+    const def = UPGRADES[id];
+    const owned = world.player.upgrades.has(id);
+    return {
+      label: def.short, cost: def.cost, color: '#39476a',
+      enabled: world.canPurchaseUpgrade('player', id),
+      ready: false, progress: 0, queue: 0, owned,
     };
   }
 
@@ -366,6 +392,7 @@ export class Ui {
     }
     for (const s of this.structRects) if (inRect(x, y, s.rect)) return { type: 'structure', id: s.id };
     for (const u of this.unitRects) if (inRect(x, y, u.rect)) return { type: 'unit', id: u.id };
+    for (const up of this.upgradeRects) if (inRect(x, y, up.rect)) return { type: 'upgrade', id: up.id };
     void cam;
     return null;
   }
@@ -376,6 +403,7 @@ export class Ui {
 interface IconState {
   label: string; cost: number; color: string;
   enabled: boolean; ready: boolean; progress: number; queue: number;
+  owned?: boolean;  // purchased upgrade (renders an OWNED badge + gold border)
 }
 
 function inRect(x: number, y: number, r: Rect): boolean {

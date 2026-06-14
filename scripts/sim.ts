@@ -97,18 +97,37 @@ class PlayerBot {
 
   private train(): void {
     const owned = this.world.ownedTypes('player');
+    const credits = this.world.player.credits;
     const harvesters = this.world.units.filter(
       (u) => u.owner === 'player' && u.def.harvester).length;
     // Replace lost harvesters up to 3 once a factory exists.
-    if (owned.has('factory') && harvesters < 3 && this.world.player.credits > 350) {
+    if (owned.has('factory') && harvesters < 3 && credits > 350) {
       this.world.queueUnit('player', 'harvester');
     }
-    // Tech to tanks when flush; otherwise keep the infantry stream flowing.
-    if (owned.has('factory') && this.world.player.credits > 700) {
+    // Sink a surplus into upgrades (mirrors a competent human using the Radar tech).
+    this.buyUpgrades();
+    // Vehicles: tank backbone (the bot blobs a-move, so fragile Artillery it can't micro only
+    // weakens it — keep the composition to what a naive-but-decent player fields well).
+    if (owned.has('factory') && credits > 700) {
       this.world.queueUnit('player', 'tank');
     }
-    if (owned.has('barracks') && this.world.player.credits > 200) {
-      this.world.queueUnit('player', 'infantry');
+    if (owned.has('barracks') && credits > 200) {
+      const wantRocket = this.unitCount('rocket') < this.unitCount('infantry') * 0.5;
+      this.world.queueUnit('player', wantRocket ? 'rocket' : 'infantry');
+    }
+  }
+
+  private unitCount(id: string): number {
+    return this.world.units.filter((u) => u.owner === 'player' && u.def.id === id).length;
+  }
+
+  private buyUpgrades(): void {
+    if (!this.world.ownedTypes('player').has('radar')) return;
+    const c = this.world.player.credits;
+    if (c > 1200 && this.world.canPurchaseUpgrade('player', 'depleted_rounds')) {
+      this.world.purchaseUpgrade('player', 'depleted_rounds');
+    } else if (c > 1400 && this.world.canPurchaseUpgrade('player', 'composite_armor')) {
+      this.world.purchaseUpgrade('player', 'composite_armor');
     }
   }
 
