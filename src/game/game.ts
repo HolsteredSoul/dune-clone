@@ -11,7 +11,7 @@ import type { WorldSnapshot } from '../world/world';
 import { EnemyAI } from '../world/ai';
 import { Building } from '../world/building';
 import { BUILDINGS } from '../world/defs';
-import type { BuildingDef, Difficulty } from '../world/defs';
+import type { BuildingDef, Difficulty, House } from '../world/defs';
 import { TILE, SIDEBAR_W } from '../world/constants';
 import { MISSIONS } from './missions';
 import { audio } from '../core/audio';
@@ -36,6 +36,7 @@ export class Game {
   overlay: Overlay = 'brief';
   // Session-persistent across missions; deliberately NOT reset in load().
   private difficulty: Difficulty = 'normal';
+  private playerHouse: House = 'atreides'; // chosen on the brief; enemy is the opposite house
 
   private readonly selected = new Set<number>();
   private selectedBuilding: Building | null = null;
@@ -62,7 +63,7 @@ export class Game {
 
   private load(i: number): void {
     this.missionIndex = i;
-    this.world = new World(MISSIONS[i], this.difficulty);
+    this.world = new World(MISSIONS[i], this.difficulty, this.playerHouse);
     this.ai = new EnemyAI(this.world, MISSIONS[i].aggression, MISSIONS[i].aiPersonality);
     this.cam.centerOn(
       (MISSIONS[i].cameraStart.tx + 0.5) * TILE,
@@ -133,8 +134,9 @@ export class Game {
     for (const e of this.input.pointerEvents) {
       if (this.overlay !== 'none') {
         if (e.kind === 'leftdown') {
-          const d = this.overlay === 'brief' ? this.ui.hitTestOverlay(e.x, e.y) : null;
-          if (d) { this.difficulty = d; this.reloadForDifficulty(); }
+          const pick = this.overlay === 'brief' ? this.ui.hitTestOverlay(e.x, e.y) : null;
+          if (pick && 'difficulty' in pick) { this.difficulty = pick.difficulty; this.reloadBrief(); }
+          else if (pick && 'house' in pick) { this.playerHouse = pick.house; this.reloadBrief(); }
           else this.advanceOverlay();
         }
         continue;
@@ -211,7 +213,8 @@ export class Game {
 
     this.missionIndex = data.missionIndex;
     this.difficulty = data.difficulty;
-    this.world = new World(MISSIONS[this.missionIndex], this.difficulty);
+    this.playerHouse = data.world.player.house ?? this.playerHouse; // keep the saved house as the pref
+    this.world = new World(MISSIONS[this.missionIndex], this.difficulty, this.playerHouse);
     this.world.deserialize(data.world);
     this.ai = new EnemyAI(this.world, MISSIONS[this.missionIndex].aggression,
       MISSIONS[this.missionIndex].aiPersonality);
@@ -231,9 +234,9 @@ export class Game {
     this.toast('Game loaded');
   }
 
-  /** Rebuild the current mission so the newly-picked difficulty's handicaps take effect
-   *  (they're applied at World/EnemyAI construction). Stays on the brief overlay. */
-  private reloadForDifficulty(): void {
+  /** Rebuild the current mission so a newly-picked difficulty or house takes effect (both are
+   *  applied at World/EnemyAI construction). Stays on the brief overlay. */
+  private reloadBrief(): void {
     this.load(this.missionIndex);
   }
 

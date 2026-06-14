@@ -33,7 +33,21 @@ fight → win/lose — works without breaking.
   runs) — a clean difficulty *ramp* (M1 easiest → M3 the hard finale), no 0%/100% cells, passive
   loses 100%. The sim bot is a LOWER BOUND, especially on M3, since it never micros Artillery
   (which the M3 brief advises) — a human does better. The surface is noisy; read at ≥30 runs.
-- **Last done (newest):** **M21 — Faction asymmetry: Atreides vs Harkonnen (the flagship).** Houses
+- **Last done (newest):** **M22 — House picker on the brief.** The player now chooses Atreides or
+  Harkonnen on the mission-brief screen (two buttons next to the difficulty picker; session-persistent
+  like difficulty); the enemy is always the opposite house (`otherHouse`). `World` constructor gained
+  an optional `playerHouse` override (player = pick, enemy = opposite); `Game.playerHouse` threads it
+  in (and `quickLoad` adopts the saved house). The brief was re-laid-out as a clean vertical flow
+  (HOUSE picker + DIFFICULTY picker + variable-height brief + begin prompt; `wrap()` now returns its
+  line count so the layout flows). `ui.hitTestOverlay` returns a discriminated `{house}|{difficulty}`
+  pick. **Balance-safe by construction:** the houses are a perfect mirror (every TTK = 1.0 either
+  way), so the flipped matchup (player Harkonnen vs Atreides enemy) is the exact mirror of the
+  baseline-verified default — no re-tune needed; `sim.ts` still constructs with no override so it
+  tests the default matchup. Verified: clean `build`; **30-run sim unchanged** (default matchup
+  identical — the new ctor param defaults to prior behaviour); live E2E — both house buttons render +
+  hit-test, clicking Harkonnen flips the matchup (player units +10% HP / enemy +10% dmg) and stays on
+  the brief, pick persists; no console errors. **Committed + pushed to origin/main.**
+- **Prior:** **M21 — Faction asymmetry: Atreides vs Harkonnen (the flagship).** Houses
   as an owner-wide modifier layer on the shared roster: `defs.ts` `House`/`HOUSES`, `Player.house`,
   `MissionConfig.playerHouse?/enemyHouse?` (default player = Atreides, enemy = Harkonnen — canonical
   Dune). Identity is **precision vs brute**: **Atreides +10% damage / −8% HP** (glass cannon),
@@ -242,12 +256,11 @@ fight → win/lose — works without breaking.
   (Depleted Rounds / Composite Armor / Turbo Drives / Salvage Logistics) hosted at the Radar, and
   the enemy AI now *gradually* fields Rockets/Scouts and buys one upgrade. Re-tuned the difficulty
   table + per-mission economy to restore a healthy ladder. (Full detail in the session log.)
-- **Next action:** The whole numbered plan + every Strategic item (save/load, **faction asymmetry**)
-  + two "Then" items (rocket turret, repair) are **done**. The houses now make a natural next layer:
-  a **house picker** on the brief (like the difficulty picker — easy now that houses are mirror-
-  balanced, so either matchup stays in-band) and **distinct rosters/superweapons** per house (the
-  deeper asymmetry — content + balance work). Other open "Then" items: **skirmish mode** (would
-  exercise both the M16 AI personalities AND house selection) and **unit veterancy**. All current
+- **Next action:** The whole numbered plan + every Strategic item (save/load, faction asymmetry +
+  **house picker**) + two "Then" items (rocket turret, repair) are **done**. Natural next layers:
+  **distinct rosters/superweapons** per house (the deeper asymmetry — content + balance work),
+  **skirmish mode** (would exercise the M16 AI personalities + house/difficulty selection on a free
+  map), and **unit veterancy**. Then perf (only when it hurts) and multiplayer (last). All current
   work is committed + live.
 
 > **Play live: https://holsteredsoul.github.io/dune-clone/** (GitHub Pages; repo is now PUBLIC).
@@ -427,6 +440,10 @@ session log, newest on top).
   power-NEUTRAL by also applying HP to buildings (per-building `maxHp`), so the ladder is preserved
   (the asymmetry is tactical feel, not raw power). House identity on the brief + top bar; house +
   building maxHp round-trip through save/load. Default: player Atreides vs enemy Harkonnen. ✅
+- [x] **M22 — House picker.** Choose your House on the brief (session-persistent; enemy = opposite).
+  `World(config, difficulty, playerHouse?)` override; brief re-laid-out as a flowing layout
+  (`wrap()` returns line count); `hitTestOverlay` → `{house}|{difficulty}`. Mirror-balanced so either
+  matchup is in-band; sim unchanged. ✅
 
 ## Open tasks / current priorities
 
@@ -545,6 +562,17 @@ which is the unpredictable wildcard.
   Revisit if/when bumping Vite intentionally.
 
 ## Session log (terse; newest on top)
+- **2026-06-14** — **M22: House picker on the brief.** Player picks Atreides/Harkonnen on the brief
+  (session-persistent like difficulty; enemy = `otherHouse`). `World` ctor gained an optional
+  `playerHouse` override (player = pick, enemy = opposite); `Game.playerHouse` threads it through
+  `load()` + `quickLoad` (adopts the saved house). Brief re-laid-out as a vertical flow (HOUSE picker
+  + DIFFICULTY picker + variable-height brief + begin), enabled by making `wrap()` return its line
+  count. `ui.hitTestOverlay` now returns a discriminated `{house}|{difficulty}`; `game.ts` routes
+  both to `reloadBrief()`. Balance-safe by the mirror symmetry (flipped matchup = exact mirror of the
+  baseline default; `sim.ts` still tests the default with no override). Verified: clean `build`;
+  30-run sim unchanged; live E2E (both buttons render+hit-test; clicking Harkonnen flips player→+HP /
+  enemy→+dmg, stays on brief, pick persists); no console errors. Files: `world/{defs,world}.ts`,
+  `game/game.ts`, `render/ui.ts`. (committed + pushed 2026-06-14).
 - **2026-06-14** — **M21: Faction asymmetry — Atreides vs Harkonnen (flagship).** Added a `House`
   modifier layer (`defs.ts` HOUSES, `Player.house`, `MissionConfig.playerHouse?/enemyHouse?`, default
   Atreides player vs Harkonnen enemy). Identity = precision vs brute: Atreides `{dmg 1.10, hp 0.92}`,

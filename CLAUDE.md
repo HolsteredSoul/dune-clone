@@ -55,7 +55,9 @@ it; double-tap the digit to re-centre the camera on the group. (Shift is the rel
 Ctrl+digit is a browser tab-switch on most browsers.)
 **Rally points:** select a friendly producer (yard/barracks/factory/helipad) with no units
 selected, then right-click to set where its new units gather (right-click the building to clear).
-**Difficulty:** pick Easy/Normal/Hard on the mission brief screen (persists for the session).
+**Difficulty + House:** on the mission brief screen pick Easy/Normal/Hard **and** your House
+(Atreides = +dmg/−HP glass cannon, Harkonnen = +HP/−dmg tank; the enemy is the opposite house).
+Both persist for the session.
 `Space` home · `Esc` cancel · `M` mute (or click the top-bar speaker; persists in `localStorage`).
 **Save/load:** `Ctrl+S` quick-save · `Ctrl+L` quick-load (one slot in `localStorage`; play only).
 **Repair:** select a damaged player building, press `R` to toggle self-repair (heals HP, drains

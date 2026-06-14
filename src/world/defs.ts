@@ -63,6 +63,9 @@ export const HOUSES: Record<House, HouseMods> = {
   harkonnen: { id: 'harkonnen', name: 'Harkonnen', blurb: 'Brute resilience: +10% HP, but their guns hit softer (−8% damage).', damageMult: 0.92, hpMult: 1.10 },
 };
 
+export const HOUSE_ORDER: House[] = ['atreides', 'harkonnen'];
+export function otherHouse(h: House): House { return h === 'atreides' ? 'harkonnen' : 'atreides'; }
+
 // ---- Armor & damage types (rock-paper-scissors combat) -------------------------------------
 // Every unit has an `armor` class; every weapon has a damage `type`. Dealt damage is scaled by
 // DAMAGE_VS_ARMOR[type][armor] (default 1.0). This is the classic Westwood counter system: guns

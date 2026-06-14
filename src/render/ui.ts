@@ -5,8 +5,11 @@
 import type { World } from '../world/world';
 import type { Camera } from '../core/camera';
 import type { Unit } from '../world/unit';
-import { BUILDINGS, UNITS, UPGRADES, BUILD_MENU_ORDER, UPGRADE_ORDER, STANCE_LABEL, DIFFICULTY, DIFFICULTY_ORDER, HOUSES } from '../world/defs';
-import type { Stance, Difficulty } from '../world/defs';
+import { BUILDINGS, UNITS, UPGRADES, BUILD_MENU_ORDER, UPGRADE_ORDER, STANCE_LABEL, DIFFICULTY, DIFFICULTY_ORDER, HOUSES, HOUSE_ORDER } from '../world/defs';
+import type { Stance, Difficulty, House } from '../world/defs';
+
+/** A click on the brief screen's pickers (difficulty or house), or null for "begin". */
+export type OverlayPick = { difficulty: Difficulty } | { house: House };
 import { SIDEBAR_W, TILE, MAP_W, MAP_H } from '../world/constants';
 
 const UNIT_ICON_ORDER = ['infantry', 'rocket', 'scout', 'harvester', 'tank', 'artillery', 'aircraft'];
@@ -39,6 +42,7 @@ export class Ui {
   private cmdRects: { cmd: CommandKind; rect: Rect }[] = [];
   private stanceRects: { stance: Stance; rect: Rect }[] = [];
   private diffRects: { d: Difficulty; rect: Rect }[] = [];
+  private houseRects: { h: House; rect: Rect }[] = [];
   private minimap: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private muteRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private screenW = 0;
@@ -57,6 +61,7 @@ export class Ui {
     this.cmdRects = [];
     this.stanceRects = [];
     this.diffRects = [];
+    this.houseRects = [];
     if (overlay === 'none' && selUnits.length > 0) this.drawCommandBar(selUnits);
     if (overlay !== 'none') this.drawOverlay(world, overlay, difficulty);
     if (toast) this.drawToast(toast);
@@ -320,42 +325,56 @@ export class Ui {
 
     ctx.textAlign = 'center';
     if (overlay === 'brief') {
+      cy = this.screenH / 2 - 110; // flow the whole brief downward from here
       ctx.fillStyle = '#ffd479';
-      ctx.font = 'bold 26px monospace';
+      ctx.font = 'bold 24px monospace';
       ctx.fillText(world.config.name, cx, cy);
-      cy += 26;
-      ctx.fillStyle = '#9fb6c9';
-      ctx.font = 'bold 13px monospace';
-      ctx.fillText(
-        `House ${HOUSES[world.player.house].name}  vs  House ${HOUSES[world.enemy.house].name}`, cx, cy);
-      cy += 15;
-      ctx.fillStyle = '#8fa0ad';
-      ctx.font = '11px monospace';
-      ctx.fillText(HOUSES[world.player.house].blurb, cx, cy);
-      cy += 24;
-      ctx.fillStyle = '#dfe6ec';
-      ctx.font = '14px monospace';
-      this.wrap(world.config.brief, cx, cy, w * 0.7, 20);
+      cy += 28;
 
-      // Difficulty picker — three buttons centred between the brief and "Click to begin".
+      // House picker (faction asymmetry) — pick your House; the enemy is the opposite.
       ctx.fillStyle = '#8a929c';
       ctx.font = 'bold 11px monospace';
-      ctx.fillText('DIFFICULTY', cx, this.screenH / 2 + 18);
-      const bw = 90, bh = 26, gap = 10;
-      const totalW = bw * 3 + gap * 2;
-      let bx = cx - totalW / 2;
-      const by = this.screenH / 2 + 28;
+      ctx.fillText('YOUR HOUSE', cx, cy);
+      cy += 8;
+      const hbw = 116, hbh = 24, hgap = 10;
+      let hbx = cx - (hbw * 2 + hgap) / 2;
+      for (const h of HOUSE_ORDER) {
+        const rect = { x: hbx, y: cy, w: hbw, h: hbh };
+        this.houseRects.push({ h, rect });
+        this.button(rect, HOUSES[h].name, h === world.player.house, false);
+        hbx += hbw + hgap;
+      }
+      ctx.textAlign = 'center';
+      cy += hbh + 14;
+      ctx.fillStyle = '#8fa0ad';
+      ctx.font = '11px monospace';
+      ctx.fillText(`${HOUSES[world.player.house].blurb}   (enemy: House ${HOUSES[world.enemy.house].name})`, cx, cy);
+      cy += 26;
+
+      // Difficulty picker.
+      ctx.fillStyle = '#8a929c';
+      ctx.font = 'bold 11px monospace';
+      ctx.fillText('DIFFICULTY', cx, cy);
+      cy += 8;
+      const bw = 90, bh = 24, gap = 10;
+      let bx = cx - (bw * 3 + gap * 2) / 2;
       for (const d of DIFFICULTY_ORDER) {
-        const rect = { x: bx, y: by, w: bw, h: bh };
+        const rect = { x: bx, y: cy, w: bw, h: bh };
         this.diffRects.push({ d, rect });
         this.button(rect, DIFFICULTY[d].label, d === difficulty, false);
         bx += bw + gap;
       }
       ctx.textAlign = 'center';
+      cy += bh + 26;
 
+      // Mission brief (variable height), then the begin prompt below it.
+      ctx.fillStyle = '#dfe6ec';
+      ctx.font = '13px monospace';
+      const lines = this.wrap(world.config.brief, cx, cy, w * 0.72, 18);
+      cy += lines * 18 + 22;
       ctx.fillStyle = '#9bffb5';
       ctx.font = 'bold 16px monospace';
-      ctx.fillText('▶ Click to begin', cx, this.screenH / 2 + 92);
+      ctx.fillText('▶ Click to begin', cx, cy);
     } else {
       const won = overlay === 'won';
       ctx.fillStyle = won ? '#9bffb5' : '#ff8a82';
@@ -381,22 +400,26 @@ export class Ui {
     ctx.textAlign = 'left';
   }
 
-  private wrap(text: string, cx: number, y: number, maxW: number, lh: number): void {
+  /** Draw word-wrapped text; returns the number of lines drawn (so callers can flow layout). */
+  private wrap(text: string, cx: number, y: number, maxW: number, lh: number): number {
     const ctx = this.ctx;
     const words = text.split(' ');
     let line = '';
     let yy = y;
+    let lines = 0;
     for (const word of words) {
       const test = line ? `${line} ${word}` : word;
       if (ctx.measureText(test).width > maxW && line) {
         ctx.fillText(line, cx, yy);
         line = word;
         yy += lh;
+        lines++;
       } else {
         line = test;
       }
     }
-    if (line) ctx.fillText(line, cx, yy);
+    if (line) { ctx.fillText(line, cx, yy); lines++; }
+    return lines;
   }
 
   private drawCommandBar(sel: Unit[]): void {
@@ -474,9 +497,10 @@ export class Ui {
     return null;
   }
 
-  /** Hit-test the difficulty picker on the brief overlay. Returns the picked level or null. */
-  hitTestOverlay(x: number, y: number): Difficulty | null {
-    for (const d of this.diffRects) if (inRect(x, y, d.rect)) return d.d;
+  /** Hit-test the brief overlay's pickers. Returns a house/difficulty pick, or null (→ begin). */
+  hitTestOverlay(x: number, y: number): OverlayPick | null {
+    for (const h of this.houseRects) if (inRect(x, y, h.rect)) return { house: h.h };
+    for (const d of this.diffRects) if (inRect(x, y, d.rect)) return { difficulty: d.d };
     return null;
   }
 

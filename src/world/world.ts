@@ -15,7 +15,7 @@ import { Unit, reserveUnitIds } from './unit';
 import { Projectile } from './projectile';
 import { Player } from './player';
 import { Fog } from './fog';
-import { BUILDINGS, UNITS, DIFFICULTY, UPGRADES, HOUSES, damageMultiplier } from './defs';
+import { BUILDINGS, UNITS, DIFFICULTY, UPGRADES, HOUSES, otherHouse, damageMultiplier } from './defs';
 import type { BuildingDef, Faction, Stance, Difficulty, ArmorClass, WeaponDef, House } from './defs';
 import { findPath, nearestOpen } from '../core/astar';
 import type { TileXY } from '../core/astar';
@@ -139,13 +139,15 @@ export class World {
   private fogTimer = 0;
   private lastAlertTime = -99; // throttles the player "under attack" cue (see damage())
 
-  constructor(config: MissionConfig, difficulty: Difficulty = 'normal') {
+  constructor(config: MissionConfig, difficulty: Difficulty = 'normal', playerHouse?: House) {
     this.config = config;
     this.difficulty = difficulty;
-    // Faction identities (default to the canonical Atreides player vs Harkonnen enemy). Set before
-    // the initial units spawn so their house HP bonus bakes in.
-    this.player.house = config.playerHouse ?? 'atreides';
-    this.enemy.house = config.enemyHouse ?? 'harkonnen';
+    // Faction identities (default to the canonical Atreides player vs Harkonnen enemy). The
+    // player's picked house (if any) wins; the enemy is the opposite house. Set before the initial
+    // units spawn so their house HP bonus bakes in.
+    const ph = playerHouse ?? config.playerHouse ?? 'atreides';
+    this.player.house = ph;
+    this.enemy.house = config.enemyHouse ?? otherHouse(ph);
     const mods = DIFFICULTY[difficulty];
     this.player.credits = Math.round(config.playerCredits * mods.playerCreditMult);
     this.enemy.credits = Math.round(config.enemyCredits * mods.enemyCreditMult);
