@@ -20,7 +20,7 @@ The bar for "real": a playable mission where the full loop — harvest → build
 fight → win/lose — works without breaking.
 
 ## Status (the cross-session pointer — read this first, update at session end)
-- **▶ Current phase:** COMPLETE — full 3-mission RTS with rally points, difficulty levels,
+- **▶ Current phase:** COMPLETE — full 4-mission RTS with rally points, difficulty levels,
   smart unit AI/stances/commands, **armor/damage-type rock-paper-scissors combat, anti-air
   discipline, an expanded unit roster (Rocket/Scout/Artillery), Tech upgrades, a procedural
   audio layer, combat juice (damage numbers / hit-flash / infantry death poof), control
