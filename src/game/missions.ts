@@ -33,6 +33,46 @@ function playerCore(extra: B[] = [], extraU: U[] = []): { b: B[]; u: U[] } {
   return { b, u };
 }
 
+// Skirmish: a fair, symmetric start. The enemy gets the SAME economic core as the player
+// (yard + power + refinery + 2 harvesters + 2 infantry), mirrored to the NE corner using the
+// campaign's proven enemy coordinates, and bootstraps the rest of its base from its build order.
+// No pre-placed army or tech on either side — the match is decided by play + the picked knobs.
+function enemyCore(): { b: B[]; u: U[] } {
+  const b: B[] = [
+    { faction: 'enemy', defId: 'yard', tx: 50, ty: 6 },
+    { faction: 'enemy', defId: 'power', tx: 54, ty: 6 },
+    { faction: 'enemy', defId: 'refinery', tx: 50, ty: 9 },
+  ];
+  const u: U[] = [
+    { faction: 'enemy', defId: 'harvester', tx: 51, ty: 11 },
+    { faction: 'enemy', defId: 'harvester', tx: 52, ty: 11 },
+    { faction: 'enemy', defId: 'infantry', tx: 47, ty: 11 },
+    { faction: 'enemy', defId: 'infantry', tx: 48, ty: 11 },
+  ];
+  return { b, u };
+}
+
+/** Build a one-off skirmish MissionConfig: symmetric economy, equal credits (difficulty mods then
+ *  tilt it), the shared spice fields, destroyAll win condition, and the chosen enemy AI archetype.
+ *  Used by BOTH the controller (game.ts) and the balance harness (sim.ts) so they test the same thing. */
+export function makeSkirmishConfig(personality = 'balanced'): MissionConfig {
+  const p = playerCore();
+  const e = enemyCore();
+  return {
+    name: 'Skirmish',
+    brief: 'A fair fight from a bare economy — out-build, out-tech, and raze the enemy base.',
+    fog: true,
+    aggression: 1.0,
+    aiPersonality: personality,
+    playerCredits: 3200,
+    enemyCredits: 3200, // symmetric; DIFFICULTY credit mults supply the Easy/Normal/Hard tilt
+    cameraStart: { tx: 10, ty: 48 },
+    spiceFields: SPICE,
+    buildings: [...p.b, ...e.b],
+    units: [...p.u, ...e.u],
+  };
+}
+
 const MISSION_1: MissionConfig = (() => {
   const p = playerCore([
     { faction: 'player', defId: 'barracks', tx: 12, ty: 46 },

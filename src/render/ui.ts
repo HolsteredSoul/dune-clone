@@ -5,11 +5,17 @@
 import type { World } from '../world/world';
 import type { Camera } from '../core/camera';
 import type { Unit } from '../world/unit';
-import { BUILDINGS, UNITS, UPGRADES, BUILD_MENU_ORDER, UPGRADE_ORDER, STANCE_LABEL, DIFFICULTY, DIFFICULTY_ORDER, HOUSES, HOUSE_ORDER } from '../world/defs';
+import { BUILDINGS, UNITS, UPGRADES, BUILD_MENU_ORDER, UPGRADE_ORDER, STANCE_LABEL, DIFFICULTY, DIFFICULTY_ORDER, HOUSES, HOUSE_ORDER, otherHouse } from '../world/defs';
 import type { Stance, Difficulty, House } from '../world/defs';
+import { PERSONALITIES, PERSONALITY_ORDER } from '../world/ai';
 
 /** A click on the brief screen's pickers (difficulty or house), or null for "begin". */
 export type OverlayPick = { difficulty: Difficulty } | { house: House };
+/** Current skirmish-setup selections, passed to drawSkirmish for active-state highlighting. */
+export interface SkirmishSel { house: House; difficulty: Difficulty; ai: string; }
+/** A click on the skirmish-setup screen. */
+export type SkirmishPick =
+  | { house: House } | { difficulty: Difficulty } | { ai: string } | { action: 'begin' | 'back' };
 import { SIDEBAR_W, TILE, MAP_W, MAP_H } from '../world/constants';
 
 const UNIT_ICON_ORDER = ['infantry', 'rocket', 'scout', 'harvester', 'tank', 'artillery', 'aircraft'];
@@ -33,7 +39,7 @@ export type UiAction =
   | { type: 'mute' }
   | { type: 'difficulty'; difficulty: Difficulty };
 
-export type Overlay = 'none' | 'title' | 'brief' | 'paused' | 'won' | 'lost';
+export type Overlay = 'none' | 'title' | 'skirmish' | 'brief' | 'paused' | 'won' | 'lost';
 
 export class Ui {
   private structRects: { id: string; rect: Rect }[] = [];
@@ -45,6 +51,8 @@ export class Ui {
   private houseRects: { h: House; rect: Rect }[] = [];
   private titleRects: { id: string; rect: Rect }[] = [];
   private pauseRects: { id: string; rect: Rect }[] = [];
+  private aiRects: { id: string; rect: Rect }[] = [];
+  private skActionRects: { action: 'begin' | 'back'; rect: Rect }[] = [];
   private minimap: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private muteRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private screenW = 0;
@@ -56,7 +64,7 @@ export class Ui {
 
   draw(world: World, cam: Camera, screenW: number, screenH: number, overlay: Overlay,
        selUnits: Unit[], difficulty: Difficulty, muted: boolean, toast: string | null = null,
-       hasSave = false): void {
+       hasSave = false, skirmishSel: SkirmishSel | null = null): void {
     this.screenW = screenW;
     this.screenH = screenH;
     this.drawTopBar(world, muted);
@@ -67,8 +75,10 @@ export class Ui {
     this.houseRects = [];
     this.titleRects = [];
     this.pauseRects = [];
+    this.aiRects = [];
+    this.skActionRects = [];
     if (overlay === 'none' && selUnits.length > 0) this.drawCommandBar(selUnits);
-    if (overlay !== 'none') this.drawOverlay(world, overlay, difficulty, hasSave);
+    if (overlay !== 'none') this.drawOverlay(world, overlay, difficulty, hasSave, skirmishSel);
     if (toast) this.drawToast(toast);
   }
 
@@ -333,11 +343,12 @@ export class Ui {
     }
   }
 
-  private drawOverlay(world: World, overlay: Overlay, difficulty: Difficulty, hasSave: boolean): void {
+  private drawOverlay(world: World, overlay: Overlay, difficulty: Difficulty, hasSave: boolean,
+                      skirmishSel: SkirmishSel | null): void {
     const ctx = this.ctx;
     const w = this.screenW - SIDEBAR_W;
-    // The title is a full-screen menu (no game yet); the in-play overlays dim only the play area.
-    const full = overlay === 'title';
+    // The title + skirmish setup are full-screen menus (no game yet); in-play overlays dim only the play area.
+    const full = overlay === 'title' || overlay === 'skirmish';
     const dimW = full ? this.screenW : w;
     ctx.fillStyle = full ? 'rgba(0,0,0,0.9)' : 'rgba(0,0,0,0.72)';
     ctx.fillRect(0, 0, dimW, this.screenH);
@@ -347,6 +358,8 @@ export class Ui {
     ctx.textAlign = 'center';
     if (overlay === 'title') {
       this.drawTitle(cx, hasSave);
+    } else if (overlay === 'skirmish') {
+      this.drawSkirmish(cx, skirmishSel ?? { house: 'atreides', difficulty, ai: 'balanced' });
     } else if (overlay === 'paused') {
       this.drawPause(cx);
     } else if (overlay === 'brief') {
@@ -445,6 +458,7 @@ export class Ui {
 
     const items: { id: string; label: string; dim: boolean }[] = [
       { id: 'campaign', label: 'CAMPAIGN', dim: false },
+      { id: 'skirmish', label: 'SKIRMISH', dim: false },
       { id: 'continue', label: hasSave ? 'CONTINUE' : 'CONTINUE  (no save)', dim: !hasSave },
     ];
     this.menu(items, cx, cy, this.titleRects);
@@ -500,6 +514,83 @@ export class Ui {
     ctx.textAlign = 'center';
     ctx.fillText(label, r.x + r.w / 2, r.y + r.h / 2 + 5);
     ctx.textAlign = 'left';
+  }
+
+  /** Skirmish setup: House + Difficulty + Enemy-AI pickers + Begin/Back. Reuses the brief's
+   *  picker primitives (button() + the same rect arrays) plus a new AI-personality row. */
+  private drawSkirmish(cx: number, sel: SkirmishSel): void {
+    const ctx = this.ctx;
+    let cy = this.screenH / 2 - 150;
+    ctx.fillStyle = '#ffd479';
+    ctx.font = 'bold 30px monospace';
+    ctx.fillText('SKIRMISH', cx, cy);
+    cy += 22;
+    ctx.fillStyle = '#8fa0ad';
+    ctx.font = '12px monospace';
+    ctx.fillText('A custom battle on a freshly generated map', cx, cy);
+    cy += 30;
+
+    // House picker (enemy takes the opposite house).
+    ctx.fillStyle = '#8a929c'; ctx.font = 'bold 11px monospace';
+    ctx.fillText('YOUR HOUSE', cx, cy); cy += 8;
+    const hbw = 116, hbh = 24, hgap = 10;
+    let hbx = cx - (hbw * 2 + hgap) / 2;
+    for (const h of HOUSE_ORDER) {
+      const rect = { x: hbx, y: cy, w: hbw, h: hbh };
+      this.houseRects.push({ h, rect });
+      this.button(rect, HOUSES[h].name, h === sel.house, false);
+      hbx += hbw + hgap;
+    }
+    ctx.textAlign = 'center';
+    cy += hbh + 12;
+    ctx.fillStyle = '#8fa0ad'; ctx.font = '11px monospace';
+    ctx.fillText(`${HOUSES[sel.house].blurb}   (enemy: House ${HOUSES[otherHouse(sel.house)].name})`, cx, cy);
+    cy += 24;
+
+    // Difficulty picker.
+    ctx.fillStyle = '#8a929c'; ctx.font = 'bold 11px monospace';
+    ctx.fillText('DIFFICULTY', cx, cy); cy += 8;
+    const bw = 90, bh = 24, gap = 10;
+    let bx = cx - (bw * 3 + gap * 2) / 2;
+    for (const d of DIFFICULTY_ORDER) {
+      const rect = { x: bx, y: cy, w: bw, h: bh };
+      this.diffRects.push({ d, rect });
+      this.button(rect, DIFFICULTY[d].label, d === sel.difficulty, false);
+      bx += bw + gap;
+    }
+    ctx.textAlign = 'center';
+    cy += bh + 24;
+
+    // Enemy AI personality picker.
+    ctx.fillStyle = '#8a929c'; ctx.font = 'bold 11px monospace';
+    ctx.fillText('ENEMY AI', cx, cy); cy += 8;
+    const aw = 96, ah = 24, agap = 8;
+    const n = PERSONALITY_ORDER.length;
+    let ax = cx - (aw * n + agap * (n - 1)) / 2;
+    for (const id of PERSONALITY_ORDER) {
+      const rect = { x: ax, y: cy, w: aw, h: ah };
+      this.aiRects.push({ id, rect });
+      this.button(rect, PERSONALITIES[id].name, id === sel.ai, false);
+      ax += aw + agap;
+    }
+    ctx.textAlign = 'center';
+    cy += ah + 12;
+    ctx.fillStyle = '#8fa0ad'; ctx.font = '11px monospace';
+    ctx.fillText(PERSONALITIES[sel.ai]?.blurb ?? '', cx, cy);
+    cy += 30;
+
+    // Begin / Back.
+    const actions: { action: 'begin' | 'back'; label: string }[] = [
+      { action: 'begin', label: '▶ BEGIN SKIRMISH' },
+      { action: 'back', label: 'BACK' },
+    ];
+    const mbw = 260, mbh = 34, mgap = 10;
+    for (const it of actions) {
+      const rect = { x: cx - mbw / 2, y: cy, w: mbw, h: mbh };
+      this.skActionRects.push({ action: it.action, rect });
+      this.menuButton(rect, it.label, false);
+      cy += mbh + mgap;
+    }
   }
 
   /** Draw word-wrapped text; returns the number of lines drawn (so callers can flow layout). */
@@ -615,6 +706,15 @@ export class Ui {
   /** Hit-test the pause-screen menu buttons; returns the button id ('resume'|'restart'|'menu') or null. */
   hitTestPause(x: number, y: number): string | null {
     for (const b of this.pauseRects) if (inRect(x, y, b.rect)) return b.id;
+    return null;
+  }
+
+  /** Hit-test the skirmish-setup screen (House/Difficulty/AI pickers + Begin/Back), or null. */
+  hitTestSkirmish(x: number, y: number): SkirmishPick | null {
+    for (const a of this.aiRects) if (inRect(x, y, a.rect)) return { ai: a.id };
+    for (const h of this.houseRects) if (inRect(x, y, h.rect)) return { house: h.h };
+    for (const d of this.diffRects) if (inRect(x, y, d.rect)) return { difficulty: d.d };
+    for (const s of this.skActionRects) if (inRect(x, y, s.rect)) return { action: s.action };
     return null;
   }
 

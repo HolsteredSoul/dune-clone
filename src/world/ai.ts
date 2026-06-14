@@ -62,6 +62,7 @@ const ECON_ORDER: BuildStep[] = [
 export interface AIPersonality {
   id: string;
   name: string;
+  blurb: string;             // one-line style description (skirmish AI picker; cosmetic, never read by sim)
   buildOrder: BuildStep[];
   aggressionMult: number;    // scales effective aggression (wave size + how soon it commits)
   waveCapMult: number;       // scales the standing-army / wave cap
@@ -73,12 +74,15 @@ export interface AIPersonality {
 }
 
 export const PERSONALITIES: Record<string, AIPersonality> = {
-  balanced:   { id: 'balanced',   name: 'Balanced',   buildOrder: BUILD_ORDER, aggressionMult: 1.0,  waveCapMult: 1.0,  rocketRatio: 0.5,  infReserveEco: 250, infReservePre: 700, upgradeThreshold: 1500, harvesterTarget: 2 },
-  turtle:     { id: 'turtle',     name: 'Turtle',     buildOrder: TURTLE_ORDER, aggressionMult: 0.85, waveCapMult: 1.15, rocketRatio: 0.6,  infReserveEco: 300, infReservePre: 700, upgradeThreshold: 1300, harvesterTarget: 2 },
-  rusher:     { id: 'rusher',     name: 'Rusher',     buildOrder: RUSH_ORDER,   aggressionMult: 1.35, waveCapMult: 0.9,  rocketRatio: 0.35, infReserveEco: 150, infReservePre: 450, upgradeThreshold: 2200, harvesterTarget: 2 },
-  mechanized: { id: 'mechanized', name: 'Mechanized', buildOrder: MECH_ORDER,   aggressionMult: 0.95, waveCapMult: 1.0,  rocketRatio: 0.4,  infReserveEco: 400, infReservePre: 800, upgradeThreshold: 1400, harvesterTarget: 2 },
-  economist:  { id: 'economist',  name: 'Economist',  buildOrder: ECON_ORDER,   aggressionMult: 0.85, waveCapMult: 1.2,  rocketRatio: 0.5,  infReserveEco: 300, infReservePre: 800, upgradeThreshold: 1200, harvesterTarget: 3 },
+  balanced:   { id: 'balanced',   name: 'Balanced',   blurb: 'Well-rounded — steady economy, mixed army.',    buildOrder: BUILD_ORDER, aggressionMult: 1.0,  waveCapMult: 1.0,  rocketRatio: 0.5,  infReserveEco: 250, infReservePre: 700, upgradeThreshold: 1500, harvesterTarget: 2 },
+  turtle:     { id: 'turtle',     name: 'Turtle',     blurb: 'Walls up with turrets, strikes late but bigger.', buildOrder: TURTLE_ORDER, aggressionMult: 0.85, waveCapMult: 1.15, rocketRatio: 0.6,  infReserveEco: 300, infReservePre: 700, upgradeThreshold: 1300, harvesterTarget: 2 },
+  rusher:     { id: 'rusher',     name: 'Rusher',     blurb: 'Floods cheap infantry and commits early.',        buildOrder: RUSH_ORDER,   aggressionMult: 1.35, waveCapMult: 0.9,  rocketRatio: 0.35, infReserveEco: 150, infReservePre: 450, upgradeThreshold: 2200, harvesterTarget: 2 },
+  mechanized: { id: 'mechanized', name: 'Mechanized', blurb: 'Factory-first, tank-heavy pushes.',                buildOrder: MECH_ORDER,   aggressionMult: 0.95, waveCapMult: 1.0,  rocketRatio: 0.4,  infReserveEco: 400, infReservePre: 800, upgradeThreshold: 1400, harvesterTarget: 2 },
+  economist:  { id: 'economist',  name: 'Economist',  blurb: 'Booms the economy, late oversized army.',          buildOrder: ECON_ORDER,   aggressionMult: 0.85, waveCapMult: 1.2,  rocketRatio: 0.5,  infReserveEco: 300, infReservePre: 800, upgradeThreshold: 1200, harvesterTarget: 3 },
 };
+
+/** Display order for the skirmish AI-personality picker (balanced first = the safe default). */
+export const PERSONALITY_ORDER: string[] = ['balanced', 'rusher', 'turtle', 'mechanized', 'economist'];
 
 export class EnemyAI {
   private think = 1;

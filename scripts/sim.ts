@@ -5,8 +5,9 @@
 // Run via: npm run sim   (esbuild bundles this to scripts/sim.mjs, then node runs it)
 
 import { World } from '../src/world/world';
-import { EnemyAI } from '../src/world/ai';
-import { MISSIONS } from '../src/game/missions';
+import type { MissionConfig } from '../src/world/world';
+import { EnemyAI, PERSONALITY_ORDER } from '../src/world/ai';
+import { MISSIONS, makeSkirmishConfig } from '../src/game/missions';
 import { BUILDINGS } from '../src/world/defs';
 import { TILE } from '../src/world/constants';
 import type { Difficulty } from '../src/world/defs';
@@ -230,8 +231,12 @@ const DT = 1 / 30;            // sim step (coarser than 60 Hz to run many matche
 const MAX_T = 540;           // 9 min hard cap (draw beyond the target 3-8 min band)
 
 function runMatch(missionIdx: number, difficulty: Difficulty, passive = false): MatchResult {
-  const world = new World(MISSIONS[missionIdx], difficulty);
-  const ai = new EnemyAI(world, MISSIONS[missionIdx].aggression, MISSIONS[missionIdx].aiPersonality);
+  return runConfig(MISSIONS[missionIdx], difficulty, passive);
+}
+
+function runConfig(config: MissionConfig, difficulty: Difficulty, passive = false): MatchResult {
+  const world = new World(config, difficulty);
+  const ai = new EnemyAI(world, config.aggression, config.aiPersonality);
   const bot: { update(dt: number): void } = passive ? new PassiveBot(world) : new PlayerBot(world);
 
   let firstBuildingLoss = Infinity;
@@ -344,6 +349,30 @@ for (const diff of DIFFS) {
   }
   console.log('');
 }
+
+// Skirmish: symmetric start, both sides build up from a bare economy. Exact win-rate matters less
+// than the campaign ladder (the bot is a lower bound), but watch for broken cells: balanced/normal
+// should land in a sane band (NOT 0%/100%), and no cell should stomp before ~90s (1st wave >=70s).
+console.log('========== SKIRMISH (symmetric start) ==========');
+const skCells: { label: string; personality: string; diff: Difficulty }[] = [];
+for (const d of DIFFS) skCells.push({ label: `balanced ${d}`, personality: 'balanced', diff: d });
+for (const p of PERSONALITY_ORDER) {
+  if (p !== 'balanced') skCells.push({ label: `${p} normal`, personality: p, diff: 'normal' });
+}
+for (const cell of skCells) {
+  log(`  running skirmish ${cell.label} (${RUNS} runs)...`);
+  const cfg = makeSkirmishConfig(cell.personality);
+  const results: MatchResult[] = [];
+  for (let r = 0; r < RUNS; r++) results.push(runConfig(cfg, cell.diff));
+  const wins = results.filter((r) => r.result === 'won').length;
+  const losses = results.filter((r) => r.result === 'lost').length;
+  const draws = results.filter((r) => r.result === 'playing').length;
+  const durations = results.map((r) => r.duration);
+  const fw = results.map((r) => r.firstWave).filter((t) => isFinite(t));
+  console.log(`  ${cell.label.padEnd(18)} win ${pct(wins / RUNS)}  loss ${pct(losses / RUNS)}  `
+    + `draw ${pct(draws / RUNS)}  med ${median(durations).toFixed(0)}s  1stwave ${fw.length ? median(fw).toFixed(0) : '∞'}s`);
+}
+console.log('');
 
 // Passive player should lose on Normal Mission 1 (validates "lose if careless").
 console.log('=== PASSIVE PLAYER (mission 1, normal) ===');

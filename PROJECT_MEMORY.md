@@ -27,14 +27,46 @@ fight → win/lose — works without breaking.
   groups + a clip-through repath fix, a (skirmish-ready) AI-personality system,
   objective/win-condition types (destroyAll/destroyTarget/survive/defend) with a new survive
   mission, quick save/load, a Rocket Turret, building repair, Atreides-vs-Harkonnen faction
-  asymmetry (houses), and a title/main-menu + in-play pause screen**, all on a re-verified
-  difficulty ladder.
+  asymmetry (houses), a title/main-menu + in-play pause screen, and a skirmish mode (free symmetric
+  match vs a pickable AI personality)**, all on a re-verified difficulty ladder.
   Latest `npm run sim` (30-40 runs/cell, after the smart-harvester rebalance): **Easy ~100/100/100,
   Normal ~60/46/40, Hard ~75/52/22** (M1/M2/M3 player win%, averaged over 2 noisy confirmation
   runs) — a clean difficulty *ramp* (M1 easiest → M3 the hard finale), no 0%/100% cells, passive
   loses 100%. The sim bot is a LOWER BOUND, especially on M3, since it never micros Artillery
   (which the M3 brief advises) — a human does better. The surface is noisy; read at ≥30 runs.
-- **Last done (newest):** **M24 — Title/main-menu + in-play pause screens.** The game now boots to a
+- **Last done (newest):** **M25 — Skirmish mode.** A non-campaign custom battle launched from the
+  title's new **SKIRMISH** button. A `'skirmish'` setup overlay offers three pickers — **House /
+  Difficulty / Enemy AI personality** (the 5 `ai.ts` archetypes, now ordered by `PERSONALITY_ORDER` +
+  a cosmetic per-archetype `blurb`) — plus Begin/Back. A skirmish is a runtime `MissionConfig`
+  (`makeSkirmishConfig()` in `missions.ts` — the single source of truth shared with `sim.ts`): a
+  **symmetric** start (both sides get the identical minimal core — yard+power+refinery+2 harvesters+2
+  infantry — the enemy bootstrapping the rest from its AI build order), **equal credits** (the
+  DIFFICULTY mults supply the Easy/Normal/Hard tilt), shared `SPICE`, `destroyAll`. Launched via a new
+  shared `Game.begin()` (refactored out of `load()` so campaign + skirmish can't drift), with
+  `missionIndex=-1` + `inSkirmish=true`; win/lose returns to the title. **Save/load works for skirmish**
+  — the runtime config is persisted in an additive optional `SaveData.skirmish` field, discriminated by
+  presence (**no `SAVE_VERSION` bump**, so existing campaign saves stay valid; Continue loads either).
+  Orchestrated per the methodology: Explore (4 parallel readers) → a 3-design panel (MVP/feel/robust,
+  all independently converging on symmetric) → single-hand implement (`ai → missions → ui → game →
+  sim`) → adversarial review → 30-run sim → live E2E. **The review caught a game-breaking bug I'd
+  missed:** the pause menu's Restart called `load(missionIndex)` with `missionIndex=-1` in a skirmish →
+  `MISSIONS[-1]` undefined → crash; fixed to rebuild from the live config via `begin()` (+ a
+  `missionIndex`-range guard in `quickLoad`). **Balance — campaign ladder UNCHANGED** (regression gate:
+  Easy 100×4, Normal 57/63/27/77, Hard 83/50/30/23 — within the documented noise band; `begin()` is
+  byte-identical construction). Skirmish band (30-run bot-vs-AI): **no broken cells** — balanced
+  easy/normal/hard 100/87/100 (the turtling PlayerBot beats the attacking AI ⇒ player-favored, but a
+  human's experience differs), rusher/mechanized/economist 100 (aggressive AIs suicide into the bot's
+  turret line), **turtle 23** (the genuine challenge — the artillery-less bot can't crack the wall; a
+  human with Artillery can), passive loses 100%. Per the documented chaos lesson, skirmish balance was
+  NOT chased (exact win-rates matter less than campaign; the archetype variety IS the feature; the
+  spice layout was re-checked and is roughly symmetric). Verified: clean `build`; 30-run sim (ladder +
+  band above); exhaustive live E2E via `window.game` + real UI rects (title→setup→all pickers→Begin ⇒ a
+  symmetric 3v3-building / 2v2-harvester world with `inSkirmish`, the chosen `ai.p.id`, and flipped
+  houses; pause→restart no crash + fresh world; skirmish save→title→Continue restores credits 5555 +
+  personality; win→title; campaign brief→play unaffected, AI 'balanced'; quit-to-menu); setup screen
+  pixel-sampled to render; no console errors. Files: `world/ai.ts`, `game/missions.ts`, `render/ui.ts`,
+  `game/game.ts`, `scripts/sim.ts`. **Committed + pushed to origin/main.**
+- **Prior:** **M24 — Title/main-menu + in-play pause screens.** The game now boots to a
   full-screen **title** overlay (Campaign + Continue) instead of straight into Mission 1's brief, and a
   **pause** overlay (Resume / Restart Mission / Quit to Menu) freezes play. Both are new `Overlay`
   states (`'title'`, `'paused'`): `ui.ts` got explicit `drawTitle`/`drawPause` branches (placed
@@ -289,22 +321,22 @@ fight → win/lose — works without breaking.
   the enemy AI now *gradually* fields Rockets/Scouts and buys one upgrade. Re-tuned the difficulty
   table + per-mission economy to restore a healthy ladder. (Full detail in the session log.)
 - **Next action (start here next session):** The whole numbered plan + every Strategic item +
-  cheap wins + the title/pause UI are **done** (M13–M24, all committed + live). **Recommended next:
-  Skirmish mode** — the title screen (M24) is its entry point (a `'skirmish'` button to add between
-  Campaign and Continue). Orchestrate it PROPERLY per the methodology (it's the bigger item): an
-  **Explore phase** over `game/missions.ts` (mission/`MissionConfig` shape), `World` setup +
-  `MissionConfig` (objective/economy/pre-placed armies/`aiPersonality`/`playerHouse`/`enemyHouse`),
-  `world/ai.ts` `PERSONALITIES` (the 5 archetypes already exist), the brief's house/difficulty pickers
-  (`ui.ts` `hitTestOverlay`/`drawOverlay`), and save/load; a **short design panel** for the skirmish
-  flow (a skirmish config screen = free/parameterized map + the existing house + difficulty pickers +
-  a NEW AI-personality picker; how to launch a non-campaign World with no "next mission"); implement
-  **single-hand in dependency order** (it touches the shared `game.ts`/`world.ts`/`ui.ts`/`missions.ts`);
-  then an **adversarial review + a 30-run sim** (skirmish exercises real combat, so balance must be
-  re-read — but exact win-rates matter less than campaign) + live E2E. **Then** (smaller/later):
-  distinct rosters/superweapons per house (content + chaotic balance), unit veterancy (balance-bound),
-  perf (only when it hurts), multiplayer (last). Note for the title: when adding Skirmish, the
-  `hitTestTitle` ids + `drawTitle` menu list are the only UI touch-points; `onOverlayClick`'s title
-  branch routes them.
+  cheap wins + the title/pause UI + **skirmish mode** are **done** (M13–M25, all committed + live).
+  Candidate next items (pick by appetite):
+  • **Stronger / less-suicidal enemy AI** (the highest-value gameplay improvement) — the skirmish
+    sim exposed that the AI throws its army into a turtle's turret line and dies (balanced/rusher/mech/
+    econ all ~100% player win vs the turtling bot; only `turtle` challenges it). An AI that probes
+    defences, focuses production buildings, and retreats from turret fire would make BOTH skirmish and
+    campaign harder + more lifelike. This is balance-bound + chaotic (sim is the oracle; never
+    parallelize) — its own focused session.
+  • **Skirmish polish** (small, low-risk): a post-match REMATCH button (currently win/lose → title;
+    settings persist so it's one click to re-run), mirrored/randomized spice for more map variety, a
+    "random" AI option, or a starting-credits/army-size slider.
+  • **Distinct rosters / superweapons per house** (deeper asymmetry — content + chaotic balance; the
+    flagship "Dune feel" upgrade on the M21 house foundation).
+  • **Unit veterancy** (balance-bound), then perf (spatial partitioning — only when it hurts), and
+    multiplayer (last). The skirmish setup overlay (`drawSkirmish`/`hitTestSkirmish` in `ui.ts`,
+    `makeSkirmishConfig` in `missions.ts`) is the natural home for any new match-setup options.
 
 > **Play live: https://holsteredsoul.github.io/dune-clone/** (GitHub Pages; repo is now PUBLIC).
 > Auto-deploys on every push to `main` via `.github/workflows/deploy.yml`. `vite.config.ts` sets
@@ -495,6 +527,12 @@ session log, newest on top).
   `P`/`Esc` toggle pause (`step()` already freezes on any overlay). UI-only (`ui.ts` draw/hit-test +
   `game.ts` routing); zero sim impact (sim never imports either file). Title is the Skirmish entry
   point (added next). ✅
+- [x] **M25 — Skirmish mode.** Title `SKIRMISH` button → a `'skirmish'` setup overlay (House /
+  Difficulty / Enemy AI personality pickers + Begin/Back). `makeSkirmishConfig()` (missions.ts,
+  shared with sim.ts) = a symmetric minimal-core start, equal credits, `destroyAll`. Launched via a
+  shared `Game.begin()` (refactored from `load()`), `missionIndex=-1`, `inSkirmish` flag; win/lose →
+  title. Save/load works (additive optional `SaveData.skirmish`, no version bump). `PERSONALITY_ORDER`
+  + `blurb` added to `ai.ts`. Campaign ladder unchanged; skirmish band has no broken cells. ✅
 
 ## Open tasks / current priorities
 
@@ -583,6 +621,19 @@ which is the unpredictable wildcard.
     tanks + Rocket Troopers + upgrades; keep it that way. • The bot under-states M3 (can't siege
     with Artillery), so M3's true human difficulty is lower than the bot win%.
 
+- **Skirmish: a turtling player beats the attacking AI from a symmetric start (M25).** The 30-run
+  skirmish sim (symmetric minimal-core start, both bots building from scratch) showed the defensive
+  PlayerBot (turret-first, defend, then push) beats `EnemyAI` in nearly every matchup — balanced
+  100/87/100 (easy/normal/hard), rusher/mechanized/economist 100% — because the AI a-moves its army
+  into the player's turret line and dies (the documented inverted-aggression effect). Only `turtle`
+  (the AI walls up; the artillery-less bot can't crack it) challenges the bot at 23%. This is NOT a
+  broken-cell problem (no 0%/100%-unwinnable, no <90s stomp, passive loses 100%) and skirmish exact
+  win-rates matter less than campaign — but it pinpoints the **single highest-value gameplay
+  improvement: a less-suicidal enemy AI** (probe defences / focus production / retreat from turret
+  fire) that would harden both skirmish AND campaign. The root cause is AI *behaviour*, not a tunable
+  credit/aggression knob (more enemy credits → bigger army thrown away → still loses), so it's a
+  focused AI session, not a balance tweak. Per the chaos lesson, skirmish balance was deliberately
+  NOT chased; the archetype variety (turtle hard, others easy) is the player-facing feature.
 - **AI archetypes swing win-rate 40–90pp vs the fixed sim bot (M16).** Measured: assigning
   `rusher` → M1 100/100/100 (infantry floods self-destruct on the player's turrets, so the mission
   gets EASIER); `mechanized` → M2 87/7/3 and `turtle` → M3 87/0/0 (tanks / a turret-wall crush the
@@ -613,6 +664,27 @@ which is the unpredictable wildcard.
   Revisit if/when bumping Vite intentionally.
 
 ## Session log (terse; newest on top)
+- **2026-06-14** — **M25: Skirmish mode.** Orchestrated per the methodology: a **Workflow Explore
+  phase** (4 parallel readers mapping missions/world/tilemap/ai+defs) → a **3-design panel**
+  (MVP/feel/robustness — all independently converged on a SYMMETRIC start) → single-hand implement in
+  dependency order (`ai.ts` PERSONALITY_ORDER+blurb → `missions.ts` makeSkirmishConfig → `ui.ts`
+  'skirmish' overlay + SKIRMISH title button → `game.ts` inSkirmish/begin()/routing/save-load →
+  `sim.ts` runConfig refactor + skirmish cells) → **adversarial review** → 30-run sim → live E2E.
+  Design calls (all the lower-risk option): symmetric start (the AI bootstraps from a yard, so equal
+  minimal cores work), fixed shared `SPICE` (terrain already varies per construction; spice re-checked
+  roughly symmetric), a dedicated `'skirmish'` overlay reusing the picker primitives, win/lose→title,
+  and save/load support via an additive optional `SaveData.skirmish` (no SAVE_VERSION bump → campaign
+  saves stay valid). **The review caught a game-breaking bug**: pause→Restart called
+  `load(missionIndex)` with `missionIndex=-1` in skirmish → `MISSIONS[-1]` undefined → crash; fixed to
+  rebuild from the live config via `begin()` (+ a quickLoad missionIndex-range guard). The campaign
+  ladder is unchanged (Easy 100×4, Normal 57/63/27/77, Hard 83/50/30/23 — within noise; `begin()` is
+  byte-identical construction). Skirmish band: no broken cells; the turtling PlayerBot beats the
+  attacking AI (balanced 100/87/100, rusher/mech/econ 100, turtle 23 = the real challenge, passive
+  loses) — documented as the next AI-improvement target, not chased (chaos lesson). Live E2E: full
+  title→setup→Begin→play→pause/restart→win→title loop + skirmish save/load round trip (credits 5555 +
+  personality restored) + campaign unaffected, all via window.game + real UI rects; setup screen
+  pixel-rendered; no console errors. Files: `world/ai.ts`, `game/missions.ts`, `render/ui.ts`,
+  `game/game.ts`, `scripts/sim.ts`. (committed + pushed 2026-06-14).
 - **2026-06-14** — **M24: Title/main-menu + in-play pause screens.** Built as a light-orchestration
   session per the methodology (UI on shared files = one hand): a **Workflow understand-pass** (2 parallel
   readers mapping `ui.ts` overlay/hit-test + `game.ts` boot/step/input/save), then I implemented

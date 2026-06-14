@@ -5,15 +5,15 @@
 import type { Camera } from '../core/camera';
 import type { Input, KeyPress } from '../core/input';
 import type { Renderer, ViewState } from '../render/renderer';
-import type { Ui, Overlay } from '../render/ui';
+import type { Ui, Overlay, SkirmishSel } from '../render/ui';
 import { World } from '../world/world';
-import type { WorldSnapshot } from '../world/world';
+import type { WorldSnapshot, MissionConfig } from '../world/world';
 import { EnemyAI } from '../world/ai';
 import { Building } from '../world/building';
 import { BUILDINGS } from '../world/defs';
 import type { BuildingDef, Difficulty, House } from '../world/defs';
 import { TILE, SIDEBAR_W } from '../world/constants';
-import { MISSIONS } from './missions';
+import { MISSIONS, makeSkirmishConfig } from './missions';
 import { audio } from '../core/audio';
 
 const SAVE_KEY = 'dune_save';
@@ -23,6 +23,10 @@ interface SaveData {
   version: number;
   missionIndex: number;
   difficulty: Difficulty;
+  // Present only for a skirmish save: the runtime config has no MISSIONS index to rebuild from,
+  // so we persist it (plain JSON) and discriminate on its presence. Backward-compatible: old
+  // campaign saves lack it and take the campaign path, so no SAVE_VERSION bump is needed.
+  skirmish?: MissionConfig;
   cam: { x: number; y: number };
   selected: number[];
   groups: [number, number[]][];
@@ -40,6 +44,10 @@ export class Game {
   // Session-persistent across missions; deliberately NOT reset in load().
   private difficulty: Difficulty = 'normal';
   private playerHouse: House = 'atreides'; // chosen on the brief; enemy is the opposite house
+  // Skirmish mode: a non-campaign match built from a runtime config (no missionIndex).
+  private inSkirmish = false;             // true while a skirmish MATCH is active (vs campaign)
+  private skirmishConfig: MissionConfig | null = null; // the live skirmish config (for save + rematch)
+  private skirmishAi = 'balanced';        // session-persistent enemy AI personality pick
 
   private readonly selected = new Set<number>();
   private selectedBuilding: Building | null = null;
@@ -68,16 +76,18 @@ export class Game {
   /** Switch to the title screen and refresh the cached has-save flag (gates Continue). */
   private enterTitle(): void {
     this.overlay = 'title';
+    this.inSkirmish = false; // no active match while on the menu
     this.titleHasSave = this.hasSave();
   }
 
-  private load(i: number): void {
-    this.missionIndex = i;
-    this.world = new World(MISSIONS[i], this.difficulty, this.playerHouse);
-    this.ai = new EnemyAI(this.world, MISSIONS[i].aggression, MISSIONS[i].aiPersonality);
+  /** Construct the World + AI for a config and reset all per-match controller state. Shared by
+   *  the campaign (load) and skirmish (startSkirmish) launch paths so they can't drift. */
+  private begin(cfg: MissionConfig, personality?: string): void {
+    this.world = new World(cfg, this.difficulty, this.playerHouse);
+    this.ai = new EnemyAI(this.world, cfg.aggression, personality ?? cfg.aiPersonality);
     this.cam.centerOn(
-      (MISSIONS[i].cameraStart.tx + 0.5) * TILE,
-      (MISSIONS[i].cameraStart.ty + 0.5) * TILE,
+      (cfg.cameraStart.tx + 0.5) * TILE,
+      (cfg.cameraStart.ty + 0.5) * TILE,
     );
     this.selected.clear();
     this.selectedBuilding = null;
@@ -87,7 +97,24 @@ export class Game {
     this.dragStart = null;
     this.groups.clear();
     this.lastGroupTap = { n: -1, t: 0 };
+  }
+
+  private load(i: number): void {
+    this.missionIndex = i;
+    this.inSkirmish = false;
+    this.skirmishConfig = null;
+    this.begin(MISSIONS[i]);
     this.overlay = 'brief';
+  }
+
+  /** Build + launch a one-off skirmish from the current pickers (House/Difficulty/AI). */
+  private startSkirmish(): void {
+    const cfg = makeSkirmishConfig(this.skirmishAi);
+    this.skirmishConfig = cfg;
+    this.inSkirmish = true;
+    this.missionIndex = -1; // no campaign index
+    this.begin(cfg, this.skirmishAi);
+    this.overlay = 'none'; // the setup screen was the brief — drop straight into play
   }
 
   step(dt: number): void {
@@ -198,6 +225,7 @@ export class Game {
       version: SAVE_VERSION,
       missionIndex: this.missionIndex,
       difficulty: this.difficulty,
+      skirmish: this.inSkirmish && this.skirmishConfig ? this.skirmishConfig : undefined,
       cam: { x: this.cam.x, y: this.cam.y },
       selected: [...this.selected],
       groups: [...this.groups.entries()],
@@ -218,14 +246,31 @@ export class Game {
     let data: SaveData;
     try { data = JSON.parse(raw) as SaveData; } catch { this.toast('Save corrupt'); return; }
     if (!data || data.version !== SAVE_VERSION) { this.toast('Save incompatible'); return; }
+    // A campaign save must carry a valid MISSIONS index (skirmish saves rebuild from data.skirmish).
+    if (!data.skirmish && (data.missionIndex < 0 || data.missionIndex >= MISSIONS.length)) {
+      this.toast('Save incompatible'); return;
+    }
 
-    this.missionIndex = data.missionIndex;
     this.difficulty = data.difficulty;
     this.playerHouse = data.world.player.house ?? this.playerHouse; // keep the saved house as the pref
-    this.world = new World(MISSIONS[this.missionIndex], this.difficulty, this.playerHouse);
-    this.world.deserialize(data.world);
-    this.ai = new EnemyAI(this.world, MISSIONS[this.missionIndex].aggression,
-      MISSIONS[this.missionIndex].aiPersonality);
+    if (data.skirmish) {
+      // Skirmish save: rebuild from the persisted runtime config (no MISSIONS index).
+      this.inSkirmish = true;
+      this.skirmishConfig = data.skirmish;
+      this.skirmishAi = data.skirmish.aiPersonality ?? 'balanced';
+      this.missionIndex = -1;
+      this.world = new World(data.skirmish, this.difficulty, this.playerHouse);
+      this.world.deserialize(data.world);
+      this.ai = new EnemyAI(this.world, data.skirmish.aggression, this.skirmishAi);
+    } else {
+      this.inSkirmish = false;
+      this.skirmishConfig = null;
+      this.missionIndex = data.missionIndex;
+      this.world = new World(MISSIONS[this.missionIndex], this.difficulty, this.playerHouse);
+      this.world.deserialize(data.world);
+      this.ai = new EnemyAI(this.world, MISSIONS[this.missionIndex].aggression,
+        MISSIONS[this.missionIndex].aiPersonality);
+    }
     this.ai.restore(data.ai);
 
     this.cam.x = data.cam.x; this.cam.y = data.cam.y;
@@ -254,15 +299,30 @@ export class Game {
     if (this.overlay === 'title') {
       const id = this.ui.hitTestTitle(x, y);
       if (id === 'campaign') this.startCampaign();
+      else if (id === 'skirmish') this.overlay = 'skirmish';
       else if (id === 'continue' && this.titleHasSave) this.quickLoad(); // dim = truly disabled
+      return;
+    }
+    if (this.overlay === 'skirmish') {
+      const pick = this.ui.hitTestSkirmish(x, y);
+      if (!pick) return; // clicked dead space — ignore
+      if ('house' in pick) this.playerHouse = pick.house;
+      else if ('difficulty' in pick) this.difficulty = pick.difficulty;
+      else if ('ai' in pick) this.skirmishAi = pick.ai;
+      else if (pick.action === 'begin') this.startSkirmish();
+      else if (pick.action === 'back') this.enterTitle();
       return;
     }
     if (this.overlay === 'paused') {
       const id = this.ui.hitTestPause(x, y);
       if (id === 'resume') this.overlay = 'none';
-      // Restart replays immediately; load() sets 'brief', so clear it to drop straight into play.
-      else if (id === 'restart') { this.load(this.missionIndex); this.overlay = 'none'; }
-      else if (id === 'menu') this.enterTitle();
+      // Restart replays immediately. A skirmish has no MISSIONS index (missionIndex = -1), so it
+      // must rebuild from the live skirmish config via begin(), not load(); both drop into play.
+      else if (id === 'restart') {
+        if (this.inSkirmish && this.skirmishConfig) this.begin(this.skirmishConfig, this.skirmishAi);
+        else this.load(this.missionIndex);
+        this.overlay = 'none';
+      } else if (id === 'menu') this.enterTitle();
       return;
     }
     if (this.overlay === 'brief') {
@@ -298,6 +358,9 @@ export class Game {
 
   private advanceOverlay(): void {
     if (this.overlay === 'brief') { this.overlay = 'none'; return; }
+    // A skirmish has no campaign progression — win or lose returns to the menu (settings persist
+    // so the player can re-open Skirmish and re-run with one click).
+    if (this.inSkirmish) { this.enterTitle(); return; }
     if (this.overlay === 'won') {
       const next = this.missionIndex + 1;
       this.load(next < MISSIONS.length ? next : 0);
@@ -538,8 +601,11 @@ export class Game {
     };
     this.renderer.draw(this.world, this.cam, view);
     const hasSave = this.overlay === 'title' && this.titleHasSave; // cached on title-entry, no per-frame I/O
+    const skirmishSel: SkirmishSel | null = this.overlay === 'skirmish'
+      ? { house: this.playerHouse, difficulty: this.difficulty, ai: this.skirmishAi }
+      : null;
     this.ui.draw(this.world, this.cam, this.cam.viewW + SIDEBAR_W, this.cam.viewH,
       this.overlay, selUnits, this.difficulty, audio.muted,
-      this.toastTtl > 0 ? this.toastMsg : null, hasSave);
+      this.toastTtl > 0 ? this.toastMsg : null, hasSave, skirmishSel);
   }
 }
