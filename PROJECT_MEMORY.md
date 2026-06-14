@@ -93,10 +93,9 @@ fight → win/lose — works without breaking.
   (Depleted Rounds / Composite Armor / Turbo Drives / Salvage Logistics) hosted at the Radar, and
   the enemy AI now *gradually* fields Rockets/Scouts and buys one upgrade. Re-tuned the difficulty
   table + per-mission economy to restore a healthy ladder. (Full detail in the session log.)
-- **Next action:** Commit the work when ready (not yet committed). Optional follow-ups (not
-  started): teach the player **sim bot** to field Artillery/Scouts so those units get sim-balanced
-  too; let the **enemy AI** use Artillery (needs the kite micro to behave under AI control);
-  AI personalities; audio; control groups (Ctrl+1–9); veterancy; more missions.
+- **Next action:** Pick from the **▼ Development plan (next session)** in "Open tasks / current
+  priorities" below — a code-accurate, re-prioritized roadmap (audio → combat juice → control
+  groups → smarter AI → objective types). All current work is committed + live.
 
 > **Play live: https://holsteredsoul.github.io/dune-clone/** (GitHub Pages; repo is now PUBLIC).
 > Auto-deploys on every push to `main` via `.github/workflows/deploy.yml`. `vite.config.ts` sets
@@ -176,11 +175,51 @@ fight → win/lose — works without breaking.
   no sim change. ✅
 
 ## Open tasks / current priorities
-1. Scaffold Vite + TS project (package.json, tsconfig, vite config, index.html, src/).
-2. Implement core loop + camera + input (M0).
-3. Implement tilemap + renderer with terrain (M1).
-4. Implement refinery + harvester economy loop + HUD (M2 vertical slice).
-5. Verify it runs (`npm run dev`) and the harvest loop actually increments credits.
+
+### ▼ Development plan (next session) — code-accurate, re-prioritized 2026-06-14
+Distilled from a reviewed plan; corrected against the actual codebase (an external plan assumed
+much of the "core" was broken — most of it isn't). The game is feature-complete and *playable
+well*; the next work is the immersion/feel layer and depth, not "hardening."
+
+**⚠ ALREADY BUILT — do NOT re-implement (a prior plan wrongly listed these as missing):**
+unit separation/anti-clumping (`world.ts` `separate()`); fog-of-war hiding enemies (`fog.ts` +
+renderer `visibleEntity()` + minimap); red/green invalid-placement ghost (`canPlace`); clickable
+minimap with owner-colored unit dots + fog overlay; sidebar build-progress bars + `xN` queue
+counts; unit/building HP bars; selection rings; "LOW POWER" banner; rally dashed-line+flag visual;
+right-click-cancel builds; parallel production; building sprites; **explosion FX (sprite-sheets live)**.
+
+**Do next, in order (each ~a session; balance-bound items are the wildcard):**
+1. **Audio layer** — the single biggest missing-feel item, and cheap. Small Web Audio module +
+   ~10 short sounds (select, move, fire-per-weapon-type, build-complete, under-attack alert,
+   explosion). Highest immersion-per-hour. (No balance impact.)
+2. **Combat juice** — floating damage numbers, a hit-flash/recoil on units, a unit death poof.
+   Procedural, cheap; beats unit *sprite sheets* (units are 6–19px). Buildings already explode;
+   units don't yet. (No balance impact.)
+3. **Quick RTS QoL** — control groups (Ctrl+1–9, *currently absent*) + the one real Phase-0 fix:
+   force a repath when a building is placed/destroyed on a unit's active path (today a unit can
+   clip through a just-placed building for up to `repathTimer` 0.4s — cosmetic, minor).
+4. **Smarter sim bot, THEN AI personalities** — the sim bot is a naive proxy (can't micro
+   Artillery → under-states the hard missions), which makes balance untrustworthy. Improve it
+   first, *then* add AI archetypes (Turtle/Rusher/Mechanized/Economist) to cut predictability.
+   **Balance-bound: re-run `npm run sim` and expect noisy multi-pass tuning.**
+5. **Objective / win-condition types** (defend / survive-timer / destroy-target), THEN expand the
+   campaign to 5–6 missions. Variety needs the *system* first — today victory is only
+   "last building standing", so more lookalike missions won't feel varied. **Balance-bound.**
+
+**Strategic (bigger, elevate above the old "Phase 3"):**
+- **Faction asymmetry (Atreides vs Harkonnen)** — the real "Dune" identity; today it's generic
+  green-vs-red with identical rosters. Big lift, high payoff. Flagship goal.
+- **Save/load** — high QoL for a campaign and comparatively easy (sim is deterministic →
+  snapshot state). Pull up from "longer-term."
+
+**Then (roughly as the source plan had them):** skirmish mode, repair mechanics, a rocket/AA
+turret (cheap — data-only in `defs.ts`), unit veterancy, perf (spatial partitioning) only when it
+hurts, multiplayer last.
+
+**Process reminders:** validate economy/combat/AI/mission changes with `npm run sim` (≥30 runs;
+the surface is noisy — see Known Issues); keep using multi-agent sessions for big features; the
+external plan's week-estimates are ~2–4× high for this AI-assisted workflow *except* balance work,
+which is the unpredictable wildcard.
 
 ## Known issues / risks
 - **Pathfinding** (M5) is the hardest piece; grid A* with many units can get expensive — defer
@@ -236,6 +275,16 @@ fight → win/lose — works without breaking.
   Revisit if/when bumping Vite intentionally.
 
 ## Session log (terse; newest on top)
+- **2026-06-14** — **Shipped public + captured next-session plan.** Made the repo PUBLIC and put
+  the game live on GitHub Pages (`vite.config.ts` base `/dune-clone/` + `.github/workflows/deploy.yml`,
+  Pages source = Actions): **https://holsteredsoul.github.io/dune-clone/**, auto-deploys on push to
+  `main` (verified live, 200). Reviewed an external dev plan, reality-checked it against the code
+  (it wrongly assumed separation/fog/invalid-ghost/minimap/queue-bars/HP-bars/low-power were
+  missing — all already built), and wrote the corrected, re-prioritized roadmap into "Open tasks /
+  current priorities" above (audio → combat juice → control groups → smarter sim bot + AI
+  personalities → objective types; faction asymmetry + save/load elevated). Key reframing: the
+  foundation is solid, so skip "hardening" and go straight to the immersion/feel layer; every
+  economy/combat/AI/mission change carries a noisy sim-rebalance tax.
 - **2026-06-14** — **M12: label tags + smart harvesters + big rebalance.** Three asks: (1) building
   label tags, (2) harvesters prioritise returning when full + fill within a visual leash else return
   & find a new patch, (3) advise what's left after a building explodes. Did (1) — name pill above
