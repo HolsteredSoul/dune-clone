@@ -24,14 +24,30 @@ fight → win/lose — works without breaking.
   smart unit AI/stances/commands, **armor/damage-type rock-paper-scissors combat, anti-air
   discipline, an expanded unit roster (Rocket/Scout/Artillery), Tech upgrades, a procedural
   audio layer, combat juice (damage numbers / hit-flash / infantry death poof), control
-  groups + a clip-through repath fix, and a (skirmish-ready) AI-personality system**, all on a
-  re-verified difficulty ladder.
+  groups + a clip-through repath fix, a (skirmish-ready) AI-personality system, and
+  objective/win-condition types (destroyAll/destroyTarget/survive/defend) with a new survive
+  mission**, all on a re-verified difficulty ladder.
   Latest `npm run sim` (30-40 runs/cell, after the smart-harvester rebalance): **Easy ~100/100/100,
   Normal ~60/46/40, Hard ~75/52/22** (M1/M2/M3 player win%, averaged over 2 noisy confirmation
   runs) — a clean difficulty *ramp* (M1 easiest → M3 the hard finale), no 0%/100% cells, passive
   loses 100%. The sim bot is a LOWER BOUND, especially on M3, since it never micros Artillery
   (which the M3 brief advises) — a human does better. The surface is noisy; read at ≥30 runs.
-- **Last done (newest):** **M16 — AI personality system (item 4; system shipped, campaign on the
+- **Last done (newest):** **M17 — Objective/win-condition types + a survive mission (item 5).**
+  Generalized victory from hardcoded last-base-standing into `MissionConfig.objective?: {kind,
+  timeLimit?, targetDefId?}` with 4 kinds: **destroyAll** (default — existing missions unchanged),
+  **destroyTarget** (raze a named enemy structure), **survive** (hold to a timer; wiping them early
+  also wins), **defend** (protect a named player building to a timer). `world.checkVictory()` branches
+  on it (losing your whole base is always a loss first). UI: a **HOLD/DEFEND m:ss countdown** in the
+  top bar for timed objectives + objective-aware VICTORY/DEFEAT subtext. New **Mission 4 — "Last
+  Stand"** showcases `survive` (hold 240s vs a heavy assault), expanding the campaign to **4
+  missions**. Verified: clean `build`; **30-run sim** — M1–M3 unchanged (default destroyAll; Normal
+  70/63/27, Hard 90/60/47), new **M4 survive Easy 100 / Normal 73 / Hard 33** after trimming the
+  early pre-placed army (the wave that hit before a defence could stand up — bot is a poor survive
+  proxy since it *attacks* not turtles, so a human does even better), passive 100% loss; live E2E —
+  all 4 objective kinds confirmed (survive→won on the clock, base-loss→lost, destroyTarget→won when
+  the named building dies, defend→lost when the protected building falls even with 6 others alive),
+  no console errors. **Committed + pushed to origin/main.**
+- **Prior:** **M16 — AI personality system (item 4; system shipped, campaign on the
   balanced default).** Refactored `EnemyAI` from one scripted style into one brain + parameterized
   `PERSONALITIES` (knobs: build order, aggressionMult, waveCapMult, rocketRatio, infantry reserves,
   upgrade threshold, harvester target). Five archetypes: **balanced** (reproduces the historical
@@ -166,13 +182,12 @@ fight → win/lose — works without breaking.
   (Depleted Rounds / Composite Armor / Turbo Drives / Salvage Logistics) hosted at the Radar, and
   the enemy AI now *gradually* fields Rockets/Scouts and buys one upgrade. Re-tuned the difficulty
   table + per-mission economy to restore a healthy ladder. (Full detail in the session log.)
-- **Next action:** Items 1–4 are **done** (item 4 = AI-personality SYSTEM, campaign on balanced;
-  per-mission archetype tuning + the skirmish mode that would use it are the deferred follow-up).
-  Next up the **▼ Development plan** is **item 5 — Objective / win-condition types** (defend /
-  survive-timer / destroy-target), then expand the campaign to 5–6 missions. ⚠ Also balance-bound
-  for any NEW mission, but the *objective-type system itself* is low-risk (existing missions stay
-  on the default "destroy all" and are unchanged). Also high-value + SAFE: **save/load** (sim is
-  deterministic → snapshot state). All current work is committed + live.
+- **Next action:** Items 1–5 are **done** (item 5 = objective-type system + the survive Mission 4;
+  the campaign is now 4 missions — more destroyTarget/defend missions can be added on the same
+  system, each a small per-mission tune). Next from the **Strategic** list: **save/load** (SAFE,
+  high-value — deterministic sim → snapshot/restore world state; do this next) and **faction
+  asymmetry (Atreides vs Harkonnen)** (the flagship big lift — distinct rosters/bonuses; balance-
+  heavy). All current work is committed + live.
 
 > **Play live: https://holsteredsoul.github.io/dune-clone/** (GitHub Pages; repo is now PUBLIC).
 > Auto-deploys on every push to `main` via `.github/workflows/deploy.yml`. `vite.config.ts` sets
@@ -309,6 +324,10 @@ session log, newest on top).
   System verified (archetypes swing the sim 40–90pp); campaign kept on balanced so the verified
   ladder is preserved — per-mission archetype tuning deferred (chaotic). Skipped the "smarter sim
   bot" half (Known-Issues: it made the bot worse). ✅ (system; campaign tuning deferred)
+- [x] **M17 — Objective / win-condition types + survive mission.** `MissionConfig.objective?`
+  (destroyAll default / destroyTarget / survive / defend); `checkVictory()` branches; HOLD/DEFEND
+  countdown HUD + objective-aware overlay text. New Mission 4 "Last Stand" (survive 240s) →
+  campaign is now 4 missions. Sim: M1–M3 unchanged, M4 Easy 100 / Normal 73 / Hard 33. ✅
 
 ## Open tasks / current priorities
 
@@ -342,9 +361,12 @@ right-click-cancel builds; parallel production; building sprites; **explosion FX
    mechanized/turtle too hard → 0% cells), so the campaign stays on `balanced` and per-mission
    archetype tuning is deferred to a focused balance session / skirmish mode. The "smarter sim bot"
    half was deliberately SKIPPED (Known-Issues: giving the bot Artillery made it worse).
-5. **← NEXT: Objective / win-condition types** (defend / survive-timer / destroy-target), THEN expand the
-   campaign to 5–6 missions. Variety needs the *system* first — today victory is only
-   "last building standing", so more lookalike missions won't feel varied. **Balance-bound.**
+5. **~~Objective / win-condition types~~ ✅ DONE (M17).** Built the system (destroyAll/destroyTarget/
+   survive/defend) + a HOLD/DEFEND countdown HUD + objective-aware overlay text, and a new survive
+   mission (M4 "Last Stand", campaign now 4 missions; Easy 100 / Normal 73 / Hard 33). Adding more
+   destroyTarget/defend missions to reach 5–6 is now just per-mission content + a small tune each.
+   Note: the sim bot is a poor proxy for *survive/defend* (it attacks instead of turtling → it
+   under-states those) — read those cells as a lower bound even more than the destroy missions.
 
 **Strategic (bigger, elevate above the old "Phase 3"):**
 - **Faction asymmetry (Atreides vs Harkonnen)** — the real "Dune" identity; today it's generic
@@ -424,6 +446,21 @@ which is the unpredictable wildcard.
   Revisit if/when bumping Vite intentionally.
 
 ## Session log (terse; newest on top)
+- **2026-06-14** — **M17: Objective/win-condition types + survive mission (item 5).** Generalized
+  `world.checkVictory()` from hardcoded last-base-standing into `MissionConfig.objective?:
+  {kind:'destroyAll'|'destroyTarget'|'survive'|'defend', timeLimit?, targetDefId?}` (default
+  destroyAll ⇒ existing missions byte-identical; losing your whole base is always a loss first;
+  survive/defend also win if you wipe the enemy early). `ui.ts`: a HOLD/DEFEND m:ss countdown in the
+  top bar for timed objectives + objective-aware VICTORY/DEFEAT subtext. New **Mission 4 "Last
+  Stand"** (survive 240s vs a heavy assault) — campaign now 4 missions. Tuning: first cut (aggression
+  1.3, 3 tanks/2 rockets pre-placed) gave Hard M4 = 3% — but the **sim bot attacks instead of
+  turtling**, so it badly under-states survive missions; trimming the early pre-placed army to 2
+  tanks/1 rocket (the wave that hit before any defence could stand up) lifted it to a clean **Easy
+  100 / Normal 73 / Hard 33**. M1–M3 unchanged (default destroyAll), passive 100% loss. Live E2E: all
+  4 objective kinds verified (survive→won on the clock; base-loss→lost; destroyTarget→won when the
+  named enemy building dies; defend→lost when the protected building falls even with 6 others alive),
+  no console errors. Files: `world/world.ts` (Objective + checkVictory), `render/ui.ts` (timer HUD +
+  overlay text), `game/missions.ts` (Mission 4). (committed + pushed 2026-06-14).
 - **2026-06-14** — **M16: AI personality system (item 4).** Refactored `EnemyAI` into one brain +
   `PERSONALITIES` knobs (build order / aggressionMult / waveCapMult / rocketRatio / infantry reserves
   / upgradeThreshold / harvesterTarget); 5 archetypes (balanced=historical, turtle, rusher,

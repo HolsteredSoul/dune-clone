@@ -23,7 +23,8 @@ TypeScript + HTML5 Canvas, bundled with Vite. No game engine.
 | HTML host + canvas | `index.html` |
 | Bootstrap / wire-up | `src/main.ts` |
 | Controller (input→commands, mission flow) | `src/game/game.ts` |
-| Mission definitions (3, escalating) | `src/game/missions.ts` |
+| Mission definitions (4: 3 destroy + 1 survive) | `src/game/missions.ts` |
+| Win-condition / objective types | `src/world/world.ts` (`Objective`, `checkVictory`) |
 | Fixed-timestep loop | `src/core/loop.ts` |
 | Input (keys/mouse, event queue) | `src/core/input.ts` |
 | Camera / viewport | `src/core/camera.ts` |

@@ -158,4 +158,57 @@ const MISSION_3: MissionConfig = (() => {
   };
 })();
 
-export const MISSIONS: MissionConfig[] = [MISSION_1, MISSION_2, MISSION_3];
+// Mission 4 introduces a NEW objective type: survive a timed onslaught (you can't out-produce
+// them in time — dig in and hold, though wiping them early still wins). Reuses M3's verified
+// player layout; the enemy is bigger + more aggressive and the win condition is the clock.
+const MISSION_4: MissionConfig = (() => {
+  const p = playerCore(
+    [
+      { faction: 'player', defId: 'power', tx: 12, ty: 51 },
+      { faction: 'player', defId: 'barracks', tx: 12, ty: 46 },
+      { faction: 'player', defId: 'turret', tx: 10, ty: 52 },
+      { faction: 'player', defId: 'turret', tx: 15, ty: 49 },
+    ],
+    [
+      { faction: 'player', defId: 'tank', tx: 14, ty: 53 },
+      { faction: 'player', defId: 'tank', tx: 15, ty: 53 },
+      { faction: 'player', defId: 'rocket', tx: 13, ty: 53 },
+    ],
+  );
+  return {
+    name: 'Mission 4 — Last Stand',
+    brief: 'A massive assault is inbound and you cannot raze their base in time — dig in and '
+      + 'SURVIVE for four minutes until reinforcements arrive. Wall up with turrets (build more!), '
+      + 'keep Rocket Troopers back for their armour, and hold the line. Watch the HOLD timer up '
+      + 'top. (Wiping them out early also wins.)',
+    fog: true,
+    aggression: 1.15,
+    objective: { kind: 'survive', timeLimit: 240 },
+    playerCredits: 4300,
+    enemyCredits: 2400,
+    cameraStart: { tx: 10, ty: 48 },
+    spiceFields: SPICE,
+    buildings: [
+      ...p.b,
+      { faction: 'enemy', defId: 'yard', tx: 50, ty: 6 },
+      { faction: 'enemy', defId: 'power', tx: 54, ty: 6 },
+      { faction: 'enemy', defId: 'power', tx: 54, ty: 9 },
+      { faction: 'enemy', defId: 'refinery', tx: 50, ty: 9 },
+      { faction: 'enemy', defId: 'barracks', tx: 47, ty: 6 },
+      { faction: 'enemy', defId: 'radar', tx: 44, ty: 6 },
+      { faction: 'enemy', defId: 'factory', tx: 47, ty: 9 },
+      { faction: 'enemy', defId: 'turret', tx: 49, ty: 12 },
+    ],
+    units: [
+      ...p.u,
+      { faction: 'enemy', defId: 'harvester', tx: 51, ty: 14 },
+      { faction: 'enemy', defId: 'harvester', tx: 52, ty: 14 },
+      { faction: 'enemy', defId: 'tank', tx: 45, ty: 12 },
+      { faction: 'enemy', defId: 'tank', tx: 44, ty: 13 },
+      { faction: 'enemy', defId: 'rocket', tx: 48, ty: 12 },
+      { faction: 'enemy', defId: 'infantry', tx: 45, ty: 11 },
+    ],
+  };
+})();
+
+export const MISSIONS: MissionConfig[] = [MISSION_1, MISSION_2, MISSION_3, MISSION_4];

@@ -57,6 +57,7 @@ export interface MissionConfig {
   fog: boolean;
   aggression: number;
   aiPersonality?: string; // EnemyAI archetype id (see ai.ts PERSONALITIES); default 'balanced'
+  objective?: Objective;  // win condition; default 'destroyAll'
   playerCredits: number;
   enemyCredits: number;
   buildings: { faction: Faction; defId: string; tx: number; ty: number }[];
@@ -66,6 +67,14 @@ export interface MissionConfig {
 }
 
 export type GameResult = 'playing' | 'won' | 'lost';
+
+/** What the player must do to win a mission. Default (unset) = 'destroyAll' (last-base-standing,
+ *  the historical behaviour). Losing your whole base is always a loss regardless of kind. */
+export interface Objective {
+  kind: 'destroyAll' | 'destroyTarget' | 'survive' | 'defend';
+  timeLimit?: number;   // seconds — win at this time (survive/defend); also shown as a HUD countdown
+  targetDefId?: string; // building id to destroy (destroyTarget) or to protect (defend)
+}
 
 export class World {
   readonly map = new TileMap(false); // generate terrain only; spice stamped per mission
@@ -991,10 +1000,31 @@ export class World {
 
   private checkVictory(): void {
     if (this.time < 0.5) return;
-    const playerHas = this.buildings.some((b) => b.owner === 'player');
-    const enemyHas = this.buildings.some((b) => b.owner === 'enemy');
-    if (!playerHas) this.result = 'lost';
-    else if (!enemyHas) this.result = 'won';
+    // Losing your whole base is always a loss, whatever the objective.
+    if (!this.buildings.some((b) => b.owner === 'player')) { this.result = 'lost'; return; }
+    const enemyGone = !this.buildings.some((b) => b.owner === 'enemy');
+    const obj = this.config.objective;
+    switch (obj?.kind ?? 'destroyAll') {
+      case 'destroyAll':
+        if (enemyGone) this.result = 'won';
+        break;
+      case 'destroyTarget':
+        // Win when the named enemy structure is gone (or the whole enemy base is).
+        if (enemyGone || !this.buildings.some(
+          (b) => b.owner === 'enemy' && b.def.id === obj!.targetDefId)) this.result = 'won';
+        break;
+      case 'survive':
+        // Hold out until the clock — wiping the enemy early counts as a win too.
+        if (enemyGone || this.time >= (obj!.timeLimit ?? 300)) this.result = 'won';
+        break;
+      case 'defend':
+        if (!this.buildings.some((b) => b.owner === 'player' && b.def.id === obj!.targetDefId)) {
+          this.result = 'lost'; // the protected structure fell
+        } else if (enemyGone || this.time >= (obj!.timeLimit ?? 300)) {
+          this.result = 'won';
+        }
+        break;
+    }
   }
 }
 

@@ -76,6 +76,16 @@ export class Ui {
       ctx.fillStyle = '#e0524a';
       ctx.fillText('LOW POWER', 280, 18);
     }
+    // Countdown for timed objectives (survive / defend) — the player needs to see the clock.
+    const obj = world.config.objective;
+    if (obj && obj.timeLimit && world.result === 'playing') {
+      const rem = Math.max(0, Math.ceil(obj.timeLimit - world.time));
+      const label = (obj.kind === 'defend' ? 'DEFEND ' : 'HOLD ')
+        + Math.floor(rem / 60) + ':' + String(rem % 60).padStart(2, '0');
+      ctx.fillStyle = rem <= 30 ? '#ff8a82' : '#7fe39a';
+      ctx.font = 'bold 14px monospace';
+      ctx.fillText(label, 410, 18);
+    }
     this.muteRect = { x: w - 30, y: 4, w: 22, h: 18 };
     this.drawSpeaker(this.muteRect, muted);
   }
@@ -322,7 +332,16 @@ export class Ui {
       cy += 44;
       ctx.fillStyle = '#dfe6ec';
       ctx.font = '15px monospace';
-      ctx.fillText(won ? 'Enemy base destroyed.' : 'Your base was overrun.', cx, cy);
+      const kind = world.config.objective?.kind ?? 'destroyAll';
+      const msg = won
+        ? (kind === 'survive' ? 'You held the line!'
+          : kind === 'defend' ? 'Position secured.'
+          : kind === 'destroyTarget' ? 'Target eliminated.'
+          : 'Enemy base destroyed.')
+        : (kind === 'defend' ? 'The position fell.'
+          : kind === 'survive' ? 'Overrun before the clock ran out.'
+          : 'Your base was overrun.');
+      ctx.fillText(msg, cx, cy);
       ctx.fillStyle = '#ffd479';
       ctx.font = 'bold 16px monospace';
       ctx.fillText(won ? '▶ Click to continue' : '▶ Click to retry', cx, this.screenH / 2 + 70);
