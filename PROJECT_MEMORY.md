@@ -137,6 +137,34 @@ fight → win/lose — works without breaking.
   base def × current mult, so re-applying on purchase never compounds). Hosted at the Radar
   (`unlocksUpgrades`) to avoid adding a new building + prereq chain to the campaigns.
 
+## Build methodology — agent & orchestrator direction (how this project is built)
+Operate as a **lead orchestrator**: per task run *assess complexity → plan → execute (direct or
+via agents) → verify → integrate → update memory*. Decide direct-vs-delegate by **coupling + file
+overlap**, not just size:
+- **Tightly-coupled changes on SHARED files → ONE careful hand (the orchestrator), in dependency
+  order.** Combat depth touched `defs → world → ui → ai → sim` at once; parallel agents would
+  collide. **Balance tuning is inherently SEQUENTIAL and chaotic** (tune → `sim` → observe →
+  re-tune) — it can't be parallelized and a multi-agent Workflow does NOT help; do it single-hand
+  with the sim as oracle.
+- **Independent / disjoint-file work → parallel agents.** Worked well this project: a code agent
+  on `src/*` + a docs agent on `assets/*.md` in parallel; a background docs agent for the
+  explosion-FX spec while I coded the renderer; a read-only **review agent** running alongside my
+  own live verification. Earlier multi-agent fan-outs: rally points and the balance/difficulty pass.
+- **Small surgical edits in code you know → just do them** (agent overhead + re-review isn't worth it).
+- Give agents **precise, self-contained specs** (they re-learn the codebase): exact method
+  signatures/algorithms for delicate code so they implement *your* intent. Tell each agent which
+  files are off-limits (e.g. don't touch `PROJECT_MEMORY.md`).
+- **Never trust an agent's self-report — re-verify its output yourself.** The artillery-bot change
+  "passed" its agent but actually *hurt* balance; only the orchestrator's own `sim` run caught it.
+
+**Verification discipline (gate every "done"):** `npm run build` clean (tsc+vite); `npm run sim`
+**≥30 runs** for any economy/combat/AI/mission change (noisy surface — see Known Issues); live
+in-browser E2E via **`window.game` eval + canvas pixel-sampling** (NOT screenshots — the in-harness
+preview tab is backgrounded so rAF pauses, the canvas collapses to ~2px and screenshots time out;
+resize to 1280×800 inside the eval to sample real pixels). Use `spawn_task`/background agents for
+out-of-scope follow-ups. Update this file at session end (Status pointer + roadmap + Known Issues +
+session log, newest on top).
+
 ## Module roadmap (build order; each is a verifiable increment)
 - [x] **M0 — Scaffold & game loop.** Vite + TS, canvas host, fixed-timestep loop, input,
   camera. *Done when:* a blank map renders and the camera scrolls. ✅
