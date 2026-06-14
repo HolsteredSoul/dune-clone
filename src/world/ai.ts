@@ -107,6 +107,15 @@ export class EnemyAI {
     this.holdUntil = Math.min(125, Math.max(70, 100 / effAggression));
   }
 
+  /** Dynamic state for save/load (the personality + difficulty mods are re-derived on construction). */
+  serialize(): { think: number; waveSize: number; holdUntil: number; attacking: boolean } {
+    return { think: this.think, waveSize: this.waveSize, holdUntil: this.holdUntil, attacking: this.attacking };
+  }
+
+  restore(s: { think: number; waveSize: number; holdUntil: number; attacking: boolean }): void {
+    this.think = s.think; this.waveSize = s.waveSize; this.holdUntil = s.holdUntil; this.attacking = s.attacking;
+  }
+
   update(dt: number): void {
     if (this.world.result !== 'playing') return;
     this.think -= dt;

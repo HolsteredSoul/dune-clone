@@ -7,6 +7,7 @@ import type { Input, KeyPress } from '../core/input';
 import type { Renderer, ViewState } from '../render/renderer';
 import type { Ui, Overlay } from '../render/ui';
 import { World } from '../world/world';
+import type { WorldSnapshot } from '../world/world';
 import { EnemyAI } from '../world/ai';
 import { Building } from '../world/building';
 import { BUILDINGS } from '../world/defs';
@@ -14,6 +15,20 @@ import type { BuildingDef, Difficulty } from '../world/defs';
 import { TILE, SIDEBAR_W } from '../world/constants';
 import { MISSIONS } from './missions';
 import { audio } from '../core/audio';
+
+const SAVE_KEY = 'dune_save';
+const SAVE_VERSION = 1;
+
+interface SaveData {
+  version: number;
+  missionIndex: number;
+  difficulty: Difficulty;
+  cam: { x: number; y: number };
+  selected: number[];
+  groups: [number, number[]][];
+  world: WorldSnapshot;
+  ai: { think: number; waveSize: number; holdUntil: number; attacking: boolean };
+}
 
 export class Game {
   world!: World;
@@ -31,6 +46,9 @@ export class Game {
   // Control groups: digit selects, Ctrl/Shift+digit assigns, double-tap a digit centers the camera.
   private readonly groups = new Map<number, number[]>();
   private lastGroupTap: { n: number; t: number } = { n: -1, t: 0 };
+  // Transient on-screen confirmation (save/load feedback).
+  private toastMsg = '';
+  private toastTtl = 0;
 
   constructor(
     private readonly cam: Camera,
@@ -62,6 +80,7 @@ export class Game {
   }
 
   step(dt: number): void {
+    if (this.toastTtl > 0) this.toastTtl -= dt;
     if (this.overlay !== 'none') return;
     this.cam.update(dt, this.input);
     this.world.update(dt);
@@ -160,6 +179,58 @@ export class Game {
     if (c) this.cam.centerOn(sx / c, sy / c);
   }
 
+  private toast(msg: string): void { this.toastMsg = msg; this.toastTtl = 2.5; }
+
+  /** Quick-save the full game (sim + AI + camera/selection) to localStorage. Play only. */
+  private quickSave(): void {
+    if (this.overlay !== 'none') { this.toast('Can only save during play'); return; }
+    const data: SaveData = {
+      version: SAVE_VERSION,
+      missionIndex: this.missionIndex,
+      difficulty: this.difficulty,
+      cam: { x: this.cam.x, y: this.cam.y },
+      selected: [...this.selected],
+      groups: [...this.groups.entries()],
+      world: this.world.serialize(),
+      ai: this.ai.serialize(),
+    };
+    try {
+      localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+      this.toast('Game saved');
+    } catch { this.toast('Save failed'); }
+  }
+
+  /** Restore the game saved by quickSave(), rebuilding the world for the right mission first. */
+  private quickLoad(): void {
+    let raw: string | null = null;
+    try { raw = localStorage.getItem(SAVE_KEY); } catch { /* private mode */ }
+    if (!raw) { this.toast('No saved game'); return; }
+    let data: SaveData;
+    try { data = JSON.parse(raw) as SaveData; } catch { this.toast('Save corrupt'); return; }
+    if (!data || data.version !== SAVE_VERSION) { this.toast('Save incompatible'); return; }
+
+    this.missionIndex = data.missionIndex;
+    this.difficulty = data.difficulty;
+    this.world = new World(MISSIONS[this.missionIndex], this.difficulty);
+    this.world.deserialize(data.world);
+    this.ai = new EnemyAI(this.world, MISSIONS[this.missionIndex].aggression,
+      MISSIONS[this.missionIndex].aiPersonality);
+    this.ai.restore(data.ai);
+
+    this.cam.x = data.cam.x; this.cam.y = data.cam.y;
+    this.selected.clear();
+    for (const id of data.selected) this.selected.add(id);
+    this.groups.clear();
+    for (const [n, ids] of data.groups) this.groups.set(n, ids);
+    this.selectedBuilding = null;
+    this.placing = null;
+    this.pendingAttackMove = false;
+    this.dragging = false;
+    this.dragStart = null;
+    this.overlay = 'none';
+    this.toast('Game loaded');
+  }
+
   /** Rebuild the current mission so the newly-picked difficulty's handicaps take effect
    *  (they're applied at World/EnemyAI construction). Stays on the brief overlay. */
   private reloadForDifficulty(): void {
@@ -243,6 +314,8 @@ export class Game {
   private onKey(k: KeyPress): void {
     const code = k.code;
     if (code.startsWith('Digit')) { this.handleGroupKey(k); return; }
+    if (k.ctrl && code === 'KeyS') { this.quickSave(); return; }
+    if (k.ctrl && code === 'KeyL') { this.quickLoad(); return; }
     const units = this.selectedUnits();
     switch (code) {
       case 'Escape':
@@ -386,6 +459,7 @@ export class Game {
     };
     this.renderer.draw(this.world, this.cam, view);
     this.ui.draw(this.world, this.cam, this.cam.viewW + SIDEBAR_W, this.cam.viewH,
-      this.overlay, selUnits, this.difficulty, audio.muted);
+      this.overlay, selUnits, this.difficulty, audio.muted,
+      this.toastTtl > 0 ? this.toastMsg : null);
   }
 }

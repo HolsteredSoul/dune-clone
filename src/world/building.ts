@@ -6,6 +6,11 @@ import type { BuildingDef, Faction } from './defs';
 
 let nextId = 1;
 
+/** After restoring a save, bump the id counter past every restored building id. */
+export function reserveBuildingIds(maxId: number): void {
+  if (maxId >= nextId) nextId = maxId + 1;
+}
+
 export class Building {
   readonly entityKind = 'building' as const;
   readonly id = nextId++;

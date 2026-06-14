@@ -49,7 +49,7 @@ export class Ui {
   get sidebarX(): number { return this.screenW - SIDEBAR_W; }
 
   draw(world: World, cam: Camera, screenW: number, screenH: number, overlay: Overlay,
-       selUnits: Unit[], difficulty: Difficulty, muted: boolean): void {
+       selUnits: Unit[], difficulty: Difficulty, muted: boolean, toast: string | null = null): void {
     this.screenW = screenW;
     this.screenH = screenH;
     this.drawTopBar(world, muted);
@@ -59,6 +59,23 @@ export class Ui {
     this.diffRects = [];
     if (overlay === 'none' && selUnits.length > 0) this.drawCommandBar(selUnits);
     if (overlay !== 'none') this.drawOverlay(world, overlay, difficulty);
+    if (toast) this.drawToast(toast);
+  }
+
+  private drawToast(msg: string): void {
+    const ctx = this.ctx;
+    const w = this.screenW - SIDEBAR_W;
+    ctx.font = 'bold 14px monospace';
+    const tw = ctx.measureText(msg).width + 28;
+    const x = (w - tw) / 2, y = 36;
+    ctx.fillStyle = 'rgba(12,14,18,0.9)';
+    ctx.fillRect(x, y, tw, 26);
+    ctx.strokeStyle = '#7fe39a';
+    ctx.strokeRect(x + 0.5, y + 0.5, tw - 1, 25);
+    ctx.fillStyle = '#d8ffe2';
+    ctx.textAlign = 'center';
+    ctx.fillText(msg, w / 2, y + 17);
+    ctx.textAlign = 'left';
   }
 
   private drawTopBar(world: World, muted: boolean): void {

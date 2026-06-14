@@ -32,6 +32,8 @@ export class Input {
       // a reserved tab-switch in most browsers and may not be preventable — Shift+digit is the
       // reliable assign modifier (see Game.onKey).
       if ((e.ctrlKey || e.shiftKey) && /^Digit[1-9]$/.test(e.code)) e.preventDefault();
+      // Quick-save / quick-load shortcuts: stop the browser's Save-page / address-bar defaults.
+      if (e.ctrlKey && (e.code === 'KeyS' || e.code === 'KeyL')) e.preventDefault();
       if (!e.repeat) this.keyPresses.push({ code: e.code, ctrl: e.ctrlKey, shift: e.shiftKey });
       this.keys.add(e.code);
     });

@@ -9,14 +9,17 @@ import {
   FOG_REFRESH, GUARD_LEASH, AGGRO_LEASH, HIT_FLASH_TIME, POPUP_TTL,
 } from './constants';
 import { TileMap, Terrain } from './tilemap';
-import { Building } from './building';
-import { Unit } from './unit';
+import { Building, reserveBuildingIds } from './building';
+import { Unit, reserveUnitIds } from './unit';
 import { Projectile } from './projectile';
 import { Player } from './player';
 import { Fog } from './fog';
 import { BUILDINGS, UNITS, DIFFICULTY, UPGRADES, damageMultiplier } from './defs';
 import type { BuildingDef, Faction, Stance, Difficulty, ArmorClass, WeaponDef } from './defs';
 import { findPath, nearestOpen } from '../core/astar';
+import type { TileXY } from '../core/astar';
+import type { BuildItem } from './player';
+import type { Order, HarvestPhase } from './unit';
 
 export type Combatant = Unit | Building;
 
@@ -67,6 +70,39 @@ export interface MissionConfig {
 }
 
 export type GameResult = 'playing' | 'won' | 'lost';
+
+// ---- Save/load snapshots (plain JSON; transient cosmetics — projectiles/effects/popups — are
+// intentionally dropped since damage is applied at fire-time, so they carry no sim state). ----
+interface PlayerSnapshot {
+  credits: number;
+  building: BuildItem | null;
+  ready: string | null;
+  unitQueues: [string, BuildItem[]][];
+  upgrades: string[];
+}
+interface BuildingSnapshot {
+  id: number; defId: string; owner: Faction; tx: number; ty: number;
+  hp: number; cooldown: number; rallyX: number | null; rallyY: number | null;
+}
+interface UnitSnapshot {
+  id: number; defId: string; owner: Faction; x: number; y: number;
+  hp: number; maxHp: number; speedMult: number; cooldown: number;
+  order: Order; stance: Stance; guardX: number; guardY: number;
+  path: TileXY[]; pathGoal: TileXY | null;
+  load: number; harvestPhase: HarvestPhase; spiceTile: TileXY | null;
+  facing: number; repathTimer: number;
+}
+export interface WorldSnapshot {
+  time: number;
+  result: GameResult;
+  terrain: number[];
+  spice: number[];
+  fog: number[];
+  player: PlayerSnapshot;
+  enemy: PlayerSnapshot;
+  buildings: BuildingSnapshot[];
+  units: UnitSnapshot[];
+}
 
 /** What the player must do to win a mission. Default (unset) = 'destroyAll' (last-base-standing,
  *  the historical behaviour). Losing your whole base is always a loss regardless of kind. */
@@ -120,6 +156,98 @@ export class World {
 
     if (!config.fog) this.fog.revealAll();
     else this.refreshFog();
+  }
+
+  // ---- save / load ------------------------------------------------------------------------
+  // Snapshot the full sim state to plain JSON (entity ids preserved so order/selection refs stay
+  // valid). The map terrain + spice are random per-mission, so they MUST be saved (not regenerated).
+
+  serialize(): WorldSnapshot {
+    const ser = (p: Player): PlayerSnapshot => ({
+      credits: p.credits,
+      building: p.building ? { ...p.building } : null,
+      ready: p.ready,
+      unitQueues: [...p.unitQueues.entries()].map(([k, q]) => [k, q.map((it) => ({ ...it }))]),
+      upgrades: [...p.upgrades],
+    });
+    return {
+      time: this.time,
+      result: this.result,
+      terrain: Array.from(this.map.terrain),
+      spice: Array.from(this.map.spice),
+      fog: Array.from(this.fog.state),
+      player: ser(this.player),
+      enemy: ser(this.enemy),
+      buildings: this.buildings.map((b) => ({
+        id: b.id, defId: b.def.id, owner: b.owner, tx: b.tx, ty: b.ty,
+        hp: b.hp, cooldown: b.cooldown, rallyX: b.rallyX, rallyY: b.rallyY,
+      })),
+      units: this.units.map((u) => ({
+        id: u.id, defId: u.def.id, owner: u.owner, x: u.x, y: u.y,
+        hp: u.hp, maxHp: u.maxHp, speedMult: u.speedMult, cooldown: u.cooldown,
+        order: { ...u.order }, stance: u.stance, guardX: u.guardX, guardY: u.guardY,
+        path: u.path.map((p) => ({ ...p })), pathGoal: u.pathGoal ? { ...u.pathGoal } : null,
+        load: u.load, harvestPhase: u.harvestPhase,
+        spiceTile: u.spiceTile ? { ...u.spiceTile } : null,
+        facing: u.facing, repathTimer: u.repathTimer,
+      })),
+    };
+  }
+
+  /** Overwrite this world's entire state from a snapshot. Construct the World for the right
+   *  mission/difficulty first (so config/map sizing match), then call this. */
+  deserialize(s: WorldSnapshot): void {
+    this.time = s.time;
+    this.result = s.result;
+    this.map.terrain.set(s.terrain);
+    this.map.spice.set(s.spice);
+    this.fog.state.set(s.fog);
+
+    const restore = (p: Player, snap: PlayerSnapshot): void => {
+      p.credits = snap.credits;
+      p.building = snap.building ? { ...snap.building } : null;
+      p.ready = snap.ready;
+      p.unitQueues.clear();
+      for (const [k, q] of snap.unitQueues) p.unitQueues.set(k, q.map((it) => ({ ...it })));
+      p.upgrades.clear();
+      for (const id of snap.upgrades) p.upgrades.add(id);
+    };
+    restore(this.player, s.player);
+    restore(this.enemy, s.enemy);
+
+    this.buildings.length = 0;
+    let maxB = 0;
+    for (const bs of s.buildings) {
+      const b = new Building(BUILDINGS[bs.defId], bs.owner, bs.tx, bs.ty);
+      (b as { id: number }).id = bs.id;
+      b.hp = bs.hp; b.cooldown = bs.cooldown; b.rallyX = bs.rallyX; b.rallyY = bs.rallyY;
+      this.buildings.push(b);
+      if (bs.id > maxB) maxB = bs.id;
+    }
+    reserveBuildingIds(maxB);
+
+    this.units.length = 0;
+    let maxU = 0;
+    for (const us of s.units) {
+      const u = new Unit(UNITS[us.defId], us.owner, us.x, us.y);
+      (u as { id: number }).id = us.id;
+      u.hp = us.hp; u.maxHp = us.maxHp; u.speedMult = us.speedMult; u.cooldown = us.cooldown;
+      u.order = { ...us.order }; u.stance = us.stance; u.guardX = us.guardX; u.guardY = us.guardY;
+      u.path = us.path.map((p) => ({ ...p })); u.pathGoal = us.pathGoal ? { ...us.pathGoal } : null;
+      u.load = us.load; u.harvestPhase = us.harvestPhase;
+      u.spiceTile = us.spiceTile ? { ...us.spiceTile } : null;
+      u.facing = us.facing; u.repathTimer = us.repathTimer;
+      this.units.push(u);
+      if (us.id > maxU) maxU = us.id;
+    }
+    reserveUnitIds(maxU);
+
+    // Transient cosmetics don't survive a load — clear them and rebuild the collision grid.
+    this.projectiles.length = 0;
+    this.effects.length = 0;
+    this.popups.length = 0;
+    this.audioEvents.length = 0;
+    this.rebuildBlocked();
   }
 
   // ---- queries -----------------------------------------------------------------------------

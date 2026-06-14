@@ -26,13 +26,31 @@ fight → win/lose — works without breaking.
   audio layer, combat juice (damage numbers / hit-flash / infantry death poof), control
   groups + a clip-through repath fix, a (skirmish-ready) AI-personality system, and
   objective/win-condition types (destroyAll/destroyTarget/survive/defend) with a new survive
-  mission**, all on a re-verified difficulty ladder.
+  mission, and quick save/load**, all on a re-verified difficulty ladder.
   Latest `npm run sim` (30-40 runs/cell, after the smart-harvester rebalance): **Easy ~100/100/100,
   Normal ~60/46/40, Hard ~75/52/22** (M1/M2/M3 player win%, averaged over 2 noisy confirmation
   runs) — a clean difficulty *ramp* (M1 easiest → M3 the hard finale), no 0%/100% cells, passive
   loses 100%. The sim bot is a LOWER BOUND, especially on M3, since it never micros Artillery
   (which the M3 brief advises) — a human does better. The surface is noisy; read at ≥30 runs.
-- **Last done (newest):** **M17 — Objective/win-condition types + a survive mission (item 5).**
+- **Last done (newest):** **M18 — Quick save/load (Strategic item).** `Ctrl+S` snapshots the full
+  game to `localStorage`, `Ctrl+L` restores it (one slot, play-only, with an on-screen toast).
+  `World.serialize()/deserialize()` capture/restore the entire sim as plain JSON: time, result, the
+  **random per-mission terrain + spice arrays** (must be saved — they're `Math.random`-generated, not
+  reproducible), fog, both players (credits/queues/upgrades/in-progress build/ready), and all
+  buildings + units **with their ids preserved** (so `order.targetId`, selection, and control-group
+  references stay valid); `reserveUnitIds/reserveBuildingIds` bump the id counters past the loaded max
+  so new entities never collide. Transient cosmetics (projectiles/effects/popups/audioEvents) are
+  intentionally dropped (damage is applied at fire-time, so they carry no sim state). `EnemyAI`
+  serializes its dynamic state (think/waveSize/holdUntil/attacking); `Game.quickLoad` rebuilds the
+  World for the saved mission/difficulty then overwrites it, and restores camera/selection/groups.
+  `KeyPress.ctrl` disambiguates `Ctrl+S` (save) from plain `S` (stop); `input.ts` preventDefaults the
+  browser Save/address-bar defaults. Verified: clean `build`; **30-run sim unchanged** (purely
+  additive to sim files — no existing code path touched); live E2E — a **save→diverge→load round-trip
+  is byte-for-byte lossless** (re-serialize after load === the saved snapshot), credits/time restored
+  (not the diverged values), all entity ids unique, **0 dangling targetId refs**, selection + control
+  group restored, and `Ctrl+S` saves without triggering Stop (plain `S` still stops). **Committed +
+  pushed to origin/main.**
+- **Prior:** **M17 — Objective/win-condition types + a survive mission (item 5).**
   Generalized victory from hardcoded last-base-standing into `MissionConfig.objective?: {kind,
   timeLimit?, targetDefId?}` with 4 kinds: **destroyAll** (default — existing missions unchanged),
   **destroyTarget** (raze a named enemy structure), **survive** (hold to a timer; wiping them early
@@ -182,12 +200,12 @@ fight → win/lose — works without breaking.
   (Depleted Rounds / Composite Armor / Turbo Drives / Salvage Logistics) hosted at the Radar, and
   the enemy AI now *gradually* fields Rockets/Scouts and buys one upgrade. Re-tuned the difficulty
   table + per-mission economy to restore a healthy ladder. (Full detail in the session log.)
-- **Next action:** Items 1–5 are **done** (item 5 = objective-type system + the survive Mission 4;
-  the campaign is now 4 missions — more destroyTarget/defend missions can be added on the same
-  system, each a small per-mission tune). Next from the **Strategic** list: **save/load** (SAFE,
-  high-value — deterministic sim → snapshot/restore world state; do this next) and **faction
-  asymmetry (Atreides vs Harkonnen)** (the flagship big lift — distinct rosters/bonuses; balance-
-  heavy). All current work is committed + live.
+- **Next action:** Items 1–5 + **save/load** are **done**. The big remaining flagship is **faction
+  asymmetry (Atreides vs Harkonnen)** — distinct rosters/bonuses instead of today's generic
+  green-vs-red with identical units; a large, balance-heavy lift best given its own focused session.
+  Cheaper safe wins still open: **repair mechanics** (player utility), a dedicated **rocket/AA turret**
+  (data-only in `defs.ts`), **skirmish mode** (would finally exercise the M16 AI personalities), and
+  **unit veterancy**. All current work is committed + live.
 
 > **Play live: https://holsteredsoul.github.io/dune-clone/** (GitHub Pages; repo is now PUBLIC).
 > Auto-deploys on every push to `main` via `.github/workflows/deploy.yml`. `vite.config.ts` sets
@@ -237,6 +255,14 @@ fight → win/lose — works without breaking.
   in the headless sim); hit-flash is an expiry *timestamp* the renderer reads against `world.time`
   (no decrement plumbing); the infantry-vs-vehicle death distinction is just an `Effect.kind` tag
   the renderer branches on. None of it is read by sim logic, so balance is untouched by construction.
+- **Save/load is a plain-JSON state snapshot, not a replay.** `World.serialize/deserialize` capture
+  the whole sim as plain data. Two things are load-bearing: (1) the **map terrain + spice are
+  `Math.random`-generated per mission**, so they MUST be saved (you can't regenerate them); (2)
+  **entity ids are preserved** on restore (units/buildings keep their saved id) because `order.targetId`,
+  the controller's selection, and control groups all reference ids — then `reserveUnit/BuildingIds`
+  push the module id counters past the loaded max so future spawns never collide. Transient cosmetics
+  (projectiles/effects/popups) are dropped — damage is applied at fire-time so a shot mid-flight holds
+  no sim state. The save lives in one `localStorage` slot, version-gated (`SAVE_VERSION`), play-only.
 - **Upgrades are owner-wide multipliers, not per-unit tech.** `Player.upgrades: Set<id>` →
   `upgradeMult(effect)`; damage & harvest multipliers apply at use-time (instant, all units),
   while vehicle HP/speed are baked per-unit in `applyUpgradeStats()` (always derived from the
@@ -328,6 +354,10 @@ session log, newest on top).
   (destroyAll default / destroyTarget / survive / defend); `checkVictory()` branches; HOLD/DEFEND
   countdown HUD + objective-aware overlay text. New Mission 4 "Last Stand" (survive 240s) →
   campaign is now 4 missions. Sim: M1–M3 unchanged, M4 Easy 100 / Normal 73 / Hard 33. ✅
+- [x] **M18 — Quick save/load.** `Ctrl+S`/`Ctrl+L` snapshot/restore the full game to `localStorage`.
+  `World.serialize/deserialize` (terrain+spice+fog arrays, players, buildings+units with ids
+  preserved; transient FX dropped) + `EnemyAI.serialize/restore`; `reserveUnit/BuildingIds` bump the
+  id counters. Round-trip proven byte-lossless live; sim unchanged (additive). ✅
 
 ## Open tasks / current priorities
 
@@ -446,6 +476,23 @@ which is the unpredictable wildcard.
   Revisit if/when bumping Vite intentionally.
 
 ## Session log (terse; newest on top)
+- **2026-06-14** — **M18: Quick save/load (Strategic item).** `Ctrl+S`/`Ctrl+L` snapshot+restore the
+  whole game to a single `localStorage` slot (play-only, toast feedback). `World.serialize()` →
+  plain JSON: time/result, the random per-mission **terrain + spice** arrays (saved, not regenerated)
+  + fog, both Players (credits/queues/upgrades/in-progress build/ready), and all buildings + units
+  with **ids preserved**; `deserialize()` overwrites a freshly-constructed World for the saved
+  mission/difficulty (`.set()` into the readonly typed arrays, clear+rebuild entity lists, cast-assign
+  saved ids, `reserveUnit/BuildingIds` to bump the counters, `rebuildBlocked()`). Transient FX
+  (projectiles/effects/popups/audioEvents) dropped (no sim state). `EnemyAI.serialize/restore` covers
+  think/waveSize/holdUntil/attacking. Controller: `Game.quickSave/quickLoad` (+ camera/selection/
+  groups), a 2.5s toast, `KeyPress.ctrl` to split `Ctrl+S` (save) from plain `S` (stop), and
+  `input.ts` preventDefaults the browser Ctrl+S/Ctrl+L defaults. Verified: clean `build`; **30-run sim
+  unchanged** (additive only — no existing sim path touched); live E2E — **save→diverge→load round
+  trip is byte-for-byte lossless** (`serialize()` after load === the saved snapshot), credits/time
+  restored over the diverged values, all ids unique, 0 dangling `targetId`, selection + group
+  restored; `Ctrl+S` saved without stopping a moving unit + plain `S` still stops; no console errors.
+  Files: `world/{world,unit,building,ai}.ts`, `core/input.ts`, `game/game.ts`, `render/ui.ts`.
+  (committed + pushed 2026-06-14).
 - **2026-06-14** — **M17: Objective/win-condition types + survive mission (item 5).** Generalized
   `world.checkVictory()` from hardcoded last-base-standing into `MissionConfig.objective?:
   {kind:'destroyAll'|'destroyTarget'|'survive'|'defend', timeLimit?, targetDefId?}` (default

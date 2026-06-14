@@ -8,6 +8,12 @@ import type { TileXY } from '../core/astar';
 
 let nextId = 1;
 
+/** After restoring a save, bump the id counter past every restored unit id so new units never
+ *  collide with a loaded one. */
+export function reserveUnitIds(maxId: number): void {
+  if (maxId >= nextId) nextId = maxId + 1;
+}
+
 export type OrderKind = 'idle' | 'move' | 'attackMove' | 'attack' | 'hold' | 'harvest';
 
 export type TargetKind = 'unit' | 'building';

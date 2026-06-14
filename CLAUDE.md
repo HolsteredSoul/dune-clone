@@ -56,6 +56,7 @@ Ctrl+digit is a browser tab-switch on most browsers.)
 selected, then right-click to set where its new units gather (right-click the building to clear).
 **Difficulty:** pick Easy/Normal/Hard on the mission brief screen (persists for the session).
 `Space` home · `Esc` cancel · `M` mute (or click the top-bar speaker; persists in `localStorage`).
+**Save/load:** `Ctrl+S` quick-save · `Ctrl+L` quick-load (one slot in `localStorage`; play only).
 **Audio:** procedural Web Audio (no asset files) — selection/move/per-weapon fire/build/under-attack/
 explosion/victory cues. Unlocks on first click (browser autoplay policy).
 
