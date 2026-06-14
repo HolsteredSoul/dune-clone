@@ -6,7 +6,7 @@ import type { World } from '../world/world';
 import type { Building } from '../world/building';
 import type { Unit } from '../world/unit';
 import { Terrain } from '../world/tilemap';
-import { TILE } from '../world/constants';
+import { TILE, HIT_FLASH_TIME, POPUP_RISE } from '../world/constants';
 import type { BuildingDef } from '../world/defs';
 
 export interface ViewState {
@@ -83,6 +83,7 @@ export class Renderer {
     for (const e of world.effects) this.drawEffect(e, cam);
     if (view.placing) this.drawGhost(view.placing, cam);
     this.drawFogDim(world, cam);
+    this.drawPopups(world, cam);
     if (view.dragRect) this.drawDrag(view.dragRect);
     if (view.aimAttackMove) this.drawAimBanner(cam);
 
@@ -177,6 +178,12 @@ export class Renderer {
     ctx.lineWidth = 2;
     ctx.strokeRect(sx + 1, sy + 1, w - 2, h - 2);
 
+    const bFlash = Math.max(0, (b.hitFlash - world.time) / HIT_FLASH_TIME);
+    if (bFlash > 0) { // white "took a hit" flash over the footprint
+      ctx.fillStyle = `rgba(255,255,255,${0.55 * bFlash})`;
+      ctx.fillRect(sx, sy, w, h);
+    }
+
     if (b.def.weapon) { // turret barrel
       ctx.fillStyle = '#2a2a30';
       ctx.beginPath();
@@ -269,6 +276,14 @@ export class Renderer {
     }
     ctx.restore();
 
+    const flash = Math.max(0, (u.hitFlash - world.time) / HIT_FLASH_TIME);
+    if (flash > 0) { // white "took a hit" flash over the silhouette
+      ctx.fillStyle = `rgba(255,255,255,${0.8 * flash})`;
+      ctx.beginPath();
+      ctx.arc(sx, sy, r + 1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     // tiny owner pip
     ctx.fillStyle = edge;
     ctx.fillRect(sx - 1, sy - r - 4, 2, 2);
@@ -292,11 +307,27 @@ export class Renderer {
     ctx.fill();
   }
 
-  private drawEffect(e: { x: number; y: number; ttl: number; max: number; size: number }, cam: Camera): void {
+  private drawEffect(e: { x: number; y: number; ttl: number; max: number; size: number; kind?: string }, cam: Camera): void {
     const ctx = this.ctx;
     const p = 1 - e.ttl / e.max;               // 0 at the blast, 1 when it has fully faded
     const cx = e.x - cam.x, cy = e.y - cam.y;
-    const big = e.size >= 30;                   // buildings (size 36) vs units (16)
+    const big = e.size >= 30;                   // buildings (size 36) vs units (18)
+
+    // Infantry "poof": a soft dust cloud (no fire), distinct from the vehicle/building blast.
+    if (e.kind === 'poof') {
+      const fade = 1 - p;
+      for (let i = 0; i < 4; i++) {
+        const ang = i * 1.9 + cx * 0.013;       // deterministic per-blast spread
+        const dist = e.size * (0.2 + 0.9 * p);
+        const px = cx + Math.cos(ang) * dist;
+        const py = cy + Math.sin(ang) * dist - p * 5;
+        ctx.fillStyle = `rgba(188,176,150,${0.5 * fade})`;
+        ctx.beginPath();
+        ctx.arc(px, py, e.size * (0.5 + 0.5 * p), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      return;
+    }
 
     // Sprite-sheet path: play the horizontal strip of square frames across the effect's life.
     const sheet = (big && fxReady('explosion-large')) || fxReady('explosion');
@@ -340,6 +371,30 @@ export class Renderer {
         ctx.fillRect(cx + dx - s / 2, cy + dy - s / 2, s, s);
       }
     }
+  }
+
+  // Floating damage numbers — rise + fade, fog-gated, culled off-screen. Cosmetic only.
+  private drawPopups(world: World, cam: Camera): void {
+    if (world.popups.length === 0) return;
+    const ctx = this.ctx;
+    ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'center';
+    ctx.lineWidth = 2;
+    for (const pp of world.popups) {
+      if (world.config.fog && !world.fog.visible(Math.floor(pp.x / TILE), Math.floor(pp.y / TILE))) continue;
+      const t = 1 - pp.ttl / pp.max;            // 0 at spawn → 1 at expiry
+      const x = pp.x - cam.x;
+      const y = pp.y - cam.y - t * POPUP_RISE;
+      if (x < -20 || x > cam.viewW + 20 || y < -10 || y > cam.viewH + 10) continue;
+      ctx.globalAlpha = pp.ttl > pp.max * 0.35 ? 1 : Math.max(0, pp.ttl / (pp.max * 0.35));
+      const label = String(pp.amount);
+      ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+      ctx.strokeText(label, x, y);
+      ctx.fillStyle = pp.friendly ? '#ff9a8a' : '#ffe6a0';
+      ctx.fillText(label, x, y);
+    }
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
   }
 
   private drawRally(b: Building, cam: Camera): void {

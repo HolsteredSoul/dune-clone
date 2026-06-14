@@ -12,6 +12,7 @@ export class Building {
   hp: number;
   cooldown = 0; // turret weapon cooldown timer
   muzzleFlash = 0;
+  hitFlash = 0; // world.time at which the white "I got hit" flash expires (visual only)
   rallyX: number | null = null; // unit gather point (world px); null = none
   rallyY: number | null = null;
 

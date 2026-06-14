@@ -49,6 +49,7 @@ export class Unit {
   repathTimer = 0; // throttles A* recomputes while chasing
   facing = 0;      // radians, last movement direction (for drawing)
   muzzleFlash = 0; // seconds remaining of firing flash (visual)
+  hitFlash = 0;    // world.time at which the white "I got hit" flash expires (visual only)
 
   constructor(
     readonly def: UnitDef,

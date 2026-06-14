@@ -22,14 +22,32 @@ fight → win/lose — works without breaking.
 ## Status (the cross-session pointer — read this first, update at session end)
 - **▶ Current phase:** COMPLETE — full 3-mission RTS with rally points, difficulty levels,
   smart unit AI/stances/commands, **armor/damage-type rock-paper-scissors combat, anti-air
-  discipline, an expanded unit roster (Rocket/Scout/Artillery), Tech upgrades, and a procedural
-  audio layer**, all on a re-verified difficulty ladder.
+  discipline, an expanded unit roster (Rocket/Scout/Artillery), Tech upgrades, a procedural
+  audio layer, and combat juice (damage numbers / hit-flash / infantry death poof)**, all on a
+  re-verified difficulty ladder.
   Latest `npm run sim` (30-40 runs/cell, after the smart-harvester rebalance): **Easy ~100/100/100,
   Normal ~60/46/40, Hard ~75/52/22** (M1/M2/M3 player win%, averaged over 2 noisy confirmation
   runs) — a clean difficulty *ramp* (M1 easiest → M3 the hard finale), no 0%/100% cells, passive
   loses 100%. The sim bot is a LOWER BOUND, especially on M3, since it never micros Artillery
   (which the M3 brief advises) — a human does better. The surface is noisy; read at ≥30 runs.
-- **Last done (newest):** **M13 — Audio layer (procedural Web Audio, zero asset files).** New
+- **Last done (newest):** **M14 — Combat juice (cosmetic, zero balance impact).** Three additions,
+  all renderer-side: (1) **floating damage numbers** — `world.damage()` pushes a `{x,y,amount,ttl,
+  friendly}` to a new `world.popups[]` (guarded by `IN_BROWSER` so the headless sim never allocates
+  them); `renderer.drawPopups` floats them up + fades, fog-gated + off-screen-culled, colored
+  warning-red for player hits / bright-gold for enemy hits. (2) **Hit-flash** — a `hitFlash` expiry
+  *timestamp* on `Unit`+`Building` set in `damage()`; the renderer overlays a fading white tint
+  (reads `world.time`, so NO per-entity decrement loop). (3) **Infantry death poof** — `Effect`
+  gained a `kind:'blast'|'poof'`; infantry now poof into grey dust (size 13, bypasses the explosion
+  sheet) while vehicles/aircraft/buildings keep the fiery blast (size 18/36). Constants
+  `HIT_FLASH_TIME/POPUP_TTL/POPUP_RISE`. Renamed world's `AUDIO_CAPTURE` → `IN_BROWSER` (now shared
+  by audio + popups). **Cannot move the sim** (popups guarded; hitFlash/effect-size/kind are never
+  read by sim logic). Verified: clean `build`; **30-run sim** clean ramp + passive 100% loss
+  (Easy 87/100/100, Normal 57/43/37, Hard 83/40/10 — Hard-M3 is the documented hyper-sensitive cell,
+  pure noise); live E2E via `window.game` — popups populate with correct amounts + `friendly` flags,
+  `hitFlash` set on hit, enemy infantry death → `poof`/size 13 + building death → `blast`/size 36 +
+  `explosion-big`, render path ran 440× with **no console errors**. **Committed + pushed to
+  origin/main.**
+- **Prior:** **M13 — Audio layer (procedural Web Audio, zero asset files).** New
   `src/core/audio.ts` `audio` singleton: lazy `AudioContext` (unlocked on first user gesture →
   autoplay policy), master gain + compressor, per-cue throttle + 16-voice cap, optional stereo
   pan, and **mute persisted to `localStorage`** (`M` key or a clickable top-bar speaker glyph).
@@ -114,10 +132,10 @@ fight → win/lose — works without breaking.
   (Depleted Rounds / Composite Armor / Turbo Drives / Salvage Logistics) hosted at the Radar, and
   the enemy AI now *gradually* fields Rockets/Scouts and buys one upgrade. Re-tuned the difficulty
   table + per-mission economy to restore a healthy ladder. (Full detail in the session log.)
-- **Next action:** Audio (item 1) is **done**. Next up the **▼ Development plan** is **item 2 —
-  Combat juice** (floating damage numbers, hit-flash/recoil, unit death poof — procedural, cheap,
-  no balance impact; units don't explode yet, only buildings do). Then control groups + the repath
-  fix (item 3). All current work is committed + live.
+- **Next action:** Audio (item 1) + Combat juice (item 2) are **done**. Next up the **▼ Development
+  plan** is **item 3 — Quick RTS QoL**: control groups (Ctrl+1–9, currently absent) + force a repath
+  when a building is placed/destroyed on a unit's active path (today a unit can clip through a
+  just-placed building for up to `repathTimer` 0.4s). All current work is committed + live.
 
 > **Play live: https://holsteredsoul.github.io/dune-clone/** (GitHub Pages; repo is now PUBLIC).
 > Auto-deploys on every push to `main` via `.github/workflows/deploy.yml`. `vite.config.ts` sets
@@ -162,6 +180,11 @@ fight → win/lose — works without breaking.
   cap) and plays UI cues directly in its input handlers. This is the same "plain data + poll each
   frame, no event bus" pattern the rest of the codebase uses. The `audio` singleton is mute-by-
   `localStorage` and unlocks its `AudioContext` on the first user gesture (browser autoplay policy).
+  **Combat juice (M14) reuses the exact same discipline:** floating damage numbers go into
+  `world.popups[]` guarded by the shared `IN_BROWSER` flag (cosmetic, high-frequency → never built
+  in the headless sim); hit-flash is an expiry *timestamp* the renderer reads against `world.time`
+  (no decrement plumbing); the infantry-vs-vehicle death distinction is just an `Effect.kind` tag
+  the renderer branches on. None of it is read by sim logic, so balance is untouched by construction.
 - **Upgrades are owner-wide multipliers, not per-unit tech.** `Player.upgrades: Set<id>` →
   `upgradeMult(effect)`; damage & harvest multipliers apply at use-time (instant, all units),
   while vehicle HP/speed are baked per-unit in `applyUpgradeStats()` (always derived from the
@@ -236,6 +259,10 @@ session log, newest on top).
   ~17 cues (select/move/place/build/cancel/upgrade, per-weapon-type fire, explosion, under-attack,
   victory/defeat) with throttle + voice cap + stereo pan + `localStorage` mute (`M`/top-bar speaker).
   Sim stays pure via a `world.audioEvents` queue drained in `game.frame()`; zero balance impact. ✅
+- [x] **M14 — Combat juice.** Cosmetic-only: floating damage numbers (`world.popups[]`, `IN_BROWSER`-
+  guarded), hit-flash (white tint via a `hitFlash` timestamp on units/buildings), and an infantry
+  death "poof" (grey dust, vs the fiery blast vehicles/buildings get) via `Effect.kind`. Renderer +
+  a few `world.damage()` lines; zero balance impact. ✅
 
 ## Open tasks / current priorities
 
@@ -256,10 +283,11 @@ right-click-cancel builds; parallel production; building sprites; **explosion FX
    fire, select/move/build/under-attack/explosion/victory cues, mute (`M`/speaker), zero balance
    impact. The next-time extension if wanted: optional sample-file overrides (drop wav/mp3, prefer
    over synth) — but keep them OUT of the `world.ts` import chain so the esbuild sim stays clean.
-2. **← NEXT: Combat juice** — floating damage numbers, a hit-flash/recoil on units, a unit death poof.
-   Procedural, cheap; beats unit *sprite sheets* (units are 6–19px). Buildings already explode;
-   units don't yet. (No balance impact.)
-3. **Quick RTS QoL** — control groups (Ctrl+1–9, *currently absent*) + the one real Phase-0 fix:
+2. ~~**Combat juice**~~ ✅ **DONE (M14).** Floating damage numbers + hit-flash + infantry death
+   poof, all renderer-side, zero balance impact. (Note: units *did* already spawn a death blast via
+   the M11 FX — M14 added the poof differentiation + numbers + flash. Recoil was skipped as
+   redundant with the flash.)
+3. **← NEXT: Quick RTS QoL** — control groups (Ctrl+1–9, *currently absent*) + the one real Phase-0 fix:
    force a repath when a building is placed/destroyed on a unit's active path (today a unit can
    clip through a just-placed building for up to `repathTimer` 0.4s — cosmetic, minor).
 4. **Smarter sim bot, THEN AI personalities** — the sim bot is a naive proxy (can't micro
@@ -339,6 +367,28 @@ which is the unpredictable wildcard.
   Revisit if/when bumping Vite intentionally.
 
 ## Session log (terse; newest on top)
+- **2026-06-14** — **M14: Combat juice (cosmetic).** Item 2 of the dev plan. All renderer-side,
+  reusing the audio session's sim-purity discipline. (1) **Floating damage numbers**: `world.damage()`
+  pushes `{x,y,amount,ttl,friendly}` to a new `world.popups[]` (guarded by `IN_BROWSER` — renamed
+  from `AUDIO_CAPTURE`, now shared — so the headless sim never allocates the high-frequency popups);
+  aged by a new `updatePopups()`; `renderer.drawPopups()` floats them up `POPUP_RISE` px + fades in
+  the last 35%, fog-gated + off-screen-culled, warning-red for player hits / bright-gold for enemy
+  hits. (2) **Hit-flash**: a `hitFlash` *expiry timestamp* on `Unit`+`Building` set in `damage()`;
+  `drawUnit`/`drawBuilding` overlay a fading white tint computed from `world.time` (no decrement
+  loop needed, unlike `muzzleFlash`). (3) **Infantry death poof**: `Effect` gained `kind:'blast'|
+  'poof'`; `damage()` tags infantry deaths `poof` (size 13) and everything else `blast` (vehicle/air
+  18, building 36); `drawEffect` draws a soft grey dust cloud for `poof` (returns before the
+  explosion-sheet path) so infantry no longer use the fiery vehicle blast. New constants
+  `HIT_FLASH_TIME 0.12 / POPUP_TTL 0.7 / POPUP_RISE 20`; new `top()` geometry helper. **Zero balance
+  impact by construction** — popups are browser-guarded, and hitFlash/effect-kind/effect-size are
+  never read by any sim system. Verified: clean `build` (+1.7 kB); **30-run sim** = clean ramp +
+  passive 100% loss (Easy 87/100/100, Normal 57/43/37, Hard 83/40/10; Hard-M3 is the documented
+  hyper-sensitive/noisy cell, not a regression — sim is byte-equivalent); live E2E via `window.game`
+  (forced on-screen combat: `world.popups` populated with correct `amount`+`friendly`; `hitFlash`
+  set on hit for both units + buildings; enemy infantry death → `Effect{kind:'poof',size:13}`,
+  building death → `{kind:'blast',size:36}` + `explosion-big` cue; render path exercised 440× with
+  **no console errors**). Files: `world/{world,unit,building,constants}.ts`, `render/renderer.ts`.
+  (committed + pushed 2026-06-14).
 - **2026-06-14** — **M13: Audio layer (procedural Web Audio).** Top item of the dev plan. New
   `src/core/audio.ts` `audio` singleton synthesizes ~17 cues at runtime (oscillator tones + filtered
   noise; `tone()`/`noise()` primitives) — no sound files, mirroring the renderer's procedural blasts.

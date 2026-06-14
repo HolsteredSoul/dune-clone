@@ -6,7 +6,7 @@
 import {
   TILE, MAP_W, MAP_H, HARVEST_RATE, HARVESTER_CAPACITY, HARVEST_LEASH, UNLOAD_RATE,
   SPICE_PER_CREDIT, MIN_POWER_FACTOR, SEPARATION_RADIUS, SEPARATION_FORCE, CORPSE_TTL,
-  FOG_REFRESH, GUARD_LEASH, AGGRO_LEASH,
+  FOG_REFRESH, GUARD_LEASH, AGGRO_LEASH, HIT_FLASH_TIME, POPUP_TTL,
 } from './constants';
 import { TileMap, Terrain } from './tilemap';
 import { Building } from './building';
@@ -26,6 +26,7 @@ export interface Effect {
   ttl: number;
   max: number;
   size: number;
+  kind?: 'blast' | 'poof'; // blast = fiery (vehicles/buildings); poof = dust (infantry). default blast
 }
 
 /** A one-shot sound request the controller drains each rendered frame (see Game). Kept as plain
@@ -36,9 +37,19 @@ export interface AudioEvent {
   y: number;
 }
 
-// Only capture audio events in a browser. In the headless sim (Node, no `window`) this is false,
-// so `audioEvents` never accumulates and there is zero overhead — the sim stays pure-data.
-const AUDIO_CAPTURE = typeof window !== 'undefined';
+/** A floating damage number (cosmetic). Browser-only — never created in the headless sim. */
+export interface Popup {
+  x: number;
+  y: number;
+  amount: number;
+  ttl: number;
+  max: number;
+  friendly: boolean; // damage to a player-owned entity (drawn warning-red) vs an enemy (bright)
+}
+
+// True only in a browser. In the headless sim (Node, no `window`) this is false, so the cosmetic
+// queues (audioEvents, popups) never accumulate and there is zero overhead — the sim stays pure.
+const IN_BROWSER = typeof window !== 'undefined';
 
 export interface MissionConfig {
   name: string;
@@ -65,6 +76,8 @@ export class World {
   readonly effects: Effect[] = [];
   /** Sound cues emitted this tick; the controller drains + clears them each rendered frame. */
   readonly audioEvents: AudioEvent[] = [];
+  /** Floating damage numbers (cosmetic, browser-only); aged out by updatePopups. */
+  readonly popups: Popup[] = [];
   readonly fog = new Fog();
   readonly config: MissionConfig;
   readonly difficulty: Difficulty;
@@ -475,6 +488,7 @@ export class World {
   update(dt: number): void {
     if (this.result !== 'playing') {
       this.updateEffects(dt);
+      this.updatePopups(dt);
       this.updateProjectiles(dt);
       return;
     }
@@ -486,6 +500,7 @@ export class World {
     this.updateTurrets(dt);
     this.updateProjectiles(dt);
     this.updateEffects(dt);
+    this.updatePopups(dt);
     this.cleanup();
 
     this.fogTimer -= dt;
@@ -797,7 +812,7 @@ export class World {
 
   /** Queue a sound cue for the controller to play (browser only — inert in the headless sim). */
   private emit(name: string, x = 0, y = 0): void {
-    if (AUDIO_CAPTURE) this.audioEvents.push({ name, x, y });
+    if (IN_BROWSER) this.audioEvents.push({ name, x, y });
   }
 
   /** Apply a weapon's hit: armor-scaled damage to the target (+ splash), and a visual tracer.
@@ -814,11 +829,24 @@ export class World {
 
   private damage(target: Combatant, amount: number): void {
     target.hp -= amount;
+    target.hitFlash = this.time + HIT_FLASH_TIME;      // cosmetic white flash (renderer reads time)
+    const ex = centerX(target), ey = centerY(target);
+    if (IN_BROWSER && amount >= 1) {                    // floating damage number (cosmetic)
+      this.popups.push({
+        x: ex, y: top(target), amount: Math.round(amount),
+        ttl: POPUP_TTL, max: POPUP_TTL, friendly: target.owner === 'player',
+      });
+    }
     if (target.hp <= 0) {
-      const big = target.entityKind === 'building';
-      const ex = centerX(target), ey = centerY(target);
-      this.effects.push({ x: ex, y: ey, ttl: CORPSE_TTL, max: CORPSE_TTL, size: big ? 36 : 16 });
-      this.emit(big ? 'explosion-big' : 'explosion', ex, ey);
+      const building = target.entityKind === 'building';
+      // Infantry "poof" into dust; vehicles, aircraft, and buildings get a fiery blast.
+      const infantry = target.entityKind === 'unit' && target.def.kind === 'infantry';
+      const size = building ? 36 : infantry ? 13 : 18;
+      this.effects.push({
+        x: ex, y: ey, ttl: CORPSE_TTL, max: CORPSE_TTL, size,
+        kind: infantry ? 'poof' : 'blast',
+      });
+      this.emit(building ? 'explosion-big' : 'explosion', ex, ey);
     } else if (target.owner === 'player' && this.time - this.lastAlertTime > 0.5) {
       // A player unit/building is taking fire (and survived the hit): nudge an "under attack"
       // alert. Coarse-throttled here; the audio layer enforces the real ~8s spacing.
@@ -874,6 +902,15 @@ export class World {
 
   private updateEffects(dt: number): void {
     for (const e of this.effects) e.ttl -= dt;
+  }
+
+  // Age + retire floating damage numbers (cosmetic; only ever populated in the browser).
+  private updatePopups(dt: number): void {
+    for (let i = this.popups.length - 1; i >= 0; i--) {
+      const p = this.popups[i];
+      p.ttl -= dt;
+      if (p.ttl <= 0) this.popups.splice(i, 1);
+    }
   }
 
   private separate(dt: number): void {
@@ -960,6 +997,10 @@ export function centerY(e: Combatant): number {
 }
 function targetRadius(e: Combatant): number {
   return e.entityKind === 'unit' ? e.def.radius : Math.max(e.def.w, e.def.h) * TILE * 0.5;
+}
+/** Y just above a combatant — where floating damage numbers spawn. */
+function top(e: Combatant): number {
+  return centerY(e) - targetRadius(e) - 2;
 }
 function armorOf(e: Combatant): ArmorClass {
   return e.entityKind === 'unit' ? e.def.armor : 'building';

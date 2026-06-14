@@ -36,5 +36,10 @@ export const SEPARATION_FORCE = 40;    // px/sec push strength
 export const PROJECTILE_HIT_RADIUS = 7; // px: projectile considered to hit within this
 export const CORPSE_TTL = 1.2;         // seconds an explosion/wreck mark lingers
 
+// --- Combat juice (cosmetic only — no sim/balance effect) ---
+export const HIT_FLASH_TIME = 0.12;    // seconds a unit/building flashes white when hit
+export const POPUP_TTL = 0.7;          // seconds a floating damage number lives
+export const POPUP_RISE = 20;          // px a damage number drifts upward over its life
+
 // --- Fog of war ---
 export const FOG_REFRESH = 0.25;       // seconds between visibility recomputes
