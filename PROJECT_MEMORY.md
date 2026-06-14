@@ -23,14 +23,33 @@ fight → win/lose — works without breaking.
 - **▶ Current phase:** COMPLETE — full 3-mission RTS with rally points, difficulty levels,
   smart unit AI/stances/commands, **armor/damage-type rock-paper-scissors combat, anti-air
   discipline, an expanded unit roster (Rocket/Scout/Artillery), Tech upgrades, a procedural
-  audio layer, combat juice (damage numbers / hit-flash / infantry death poof), and control
-  groups + a clip-through repath fix**, all on a re-verified difficulty ladder.
+  audio layer, combat juice (damage numbers / hit-flash / infantry death poof), control
+  groups + a clip-through repath fix, and a (skirmish-ready) AI-personality system**, all on a
+  re-verified difficulty ladder.
   Latest `npm run sim` (30-40 runs/cell, after the smart-harvester rebalance): **Easy ~100/100/100,
   Normal ~60/46/40, Hard ~75/52/22** (M1/M2/M3 player win%, averaged over 2 noisy confirmation
   runs) — a clean difficulty *ramp* (M1 easiest → M3 the hard finale), no 0%/100% cells, passive
   loses 100%. The sim bot is a LOWER BOUND, especially on M3, since it never micros Artillery
   (which the M3 brief advises) — a human does better. The surface is noisy; read at ≥30 runs.
-- **Last done (newest):** **M15 — Control groups + clip-through repath fix (item 3 / Quick RTS QoL).**
+- **Last done (newest):** **M16 — AI personality system (item 4; system shipped, campaign on the
+  balanced default).** Refactored `EnemyAI` from one scripted style into one brain + parameterized
+  `PERSONALITIES` (knobs: build order, aggressionMult, waveCapMult, rocketRatio, infantry reserves,
+  upgrade threshold, harvester target). Five archetypes: **balanced** (reproduces the historical
+  behaviour byte-for-byte), **turtle** (turret wall, late/bigger army), **rusher** (lean, infantry
+  flood, early commit), **mechanized** (factory-first, tank-heavy), **economist** (double-refinery
+  boom, late oversized army). `MissionConfig.aiPersonality?` threads through `game.ts` + `scripts/
+  sim.ts`; unset ⇒ balanced. **The system works** — assigning archetypes swung the 30-run sim
+  wildly (rusher M1 → 100/100/100 too easy as infantry self-destructs on defence; mechanized M2 →
+  87/7/3 as tanks crush the bot; turtle M3 → 87/0/0, a broken 0% cell the artillery-less bot can't
+  crack) — which is exactly why **the campaign stays on balanced**: per-mission archetype assignment
+  needs a dedicated rebalance (the documented chaotic wildcard), deferred to a focused balance
+  session / skirmish mode, not guessed autonomously. Deliberately **skipped the "smarter sim bot"**
+  half of item 4 per the Known-Issues lesson (giving the bot Artillery made it worse; its
+  tanks+rockets+upgrades comp is the best proxy). Verified: clean `build`; **30-run sim** with the
+  balanced default = the verified ladder intact (Easy 100/100/100, Normal 67/50/30, Hard 80/70/33,
+  passive 100% loss); live E2E — campaign `EnemyAI.p.id === 'balanced'`, no console errors.
+  **Committed + pushed to origin/main.**
+- **Prior:** **M15 — Control groups + clip-through repath fix (item 3 / Quick RTS QoL).**
   (1) **Control groups**: `Shift`/`Ctrl`+`1`–`9` assigns the current selection to a group, the bare
   digit selects it, double-tapping a digit (≤350ms) re-centres the camera on the group. Input now
   captures modifier state *with* each keypress (`KeyPress{code,ctrl,shift}`) so assign-vs-select is
@@ -147,11 +166,13 @@ fight → win/lose — works without breaking.
   (Depleted Rounds / Composite Armor / Turbo Drives / Salvage Logistics) hosted at the Radar, and
   the enemy AI now *gradually* fields Rockets/Scouts and buys one upgrade. Re-tuned the difficulty
   table + per-mission economy to restore a healthy ladder. (Full detail in the session log.)
-- **Next action:** Items 1–3 (audio, combat juice, control groups + repath) are **done**. Next up
-  the **▼ Development plan** is **item 4 — Smarter sim bot, THEN AI personalities** (Turtle / Rusher /
-  Mechanized / Economist). ⚠ This is the BALANCE-BOUND wildcard — expect noisy multi-pass `sim`
-  tuning, and recall the Known-Issues lesson that giving the sim bot Artillery made it WORSE. All
-  current work is committed + live.
+- **Next action:** Items 1–4 are **done** (item 4 = AI-personality SYSTEM, campaign on balanced;
+  per-mission archetype tuning + the skirmish mode that would use it are the deferred follow-up).
+  Next up the **▼ Development plan** is **item 5 — Objective / win-condition types** (defend /
+  survive-timer / destroy-target), then expand the campaign to 5–6 missions. ⚠ Also balance-bound
+  for any NEW mission, but the *objective-type system itself* is low-risk (existing missions stay
+  on the default "destroy all" and are unchanged). Also high-value + SAFE: **save/load** (sim is
+  deterministic → snapshot state). All current work is committed + live.
 
 > **Play live: https://holsteredsoul.github.io/dune-clone/** (GitHub Pages; repo is now PUBLIC).
 > Auto-deploys on every push to `main` via `.github/workflows/deploy.yml`. `vite.config.ts` sets
@@ -283,6 +304,11 @@ session log, newest on top).
   double-tap centres; `KeyPress{code,ctrl,shift}` captures modifiers at press time. `rebuildBlocked()`
   invalidates any unit path crossing a newly placed/destroyed building so units stop clipping
   through for ~0.4s. ✅
+- [x] **M16 — AI personality system.** `EnemyAI` parameterized over `PERSONALITIES` (balanced /
+  turtle / rusher / mechanized / economist); `MissionConfig.aiPersonality?` (default balanced).
+  System verified (archetypes swing the sim 40–90pp); campaign kept on balanced so the verified
+  ladder is preserved — per-mission archetype tuning deferred (chaotic). Skipped the "smarter sim
+  bot" half (Known-Issues: it made the bot worse). ✅ (system; campaign tuning deferred)
 
 ## Open tasks / current priorities
 
@@ -310,11 +336,13 @@ right-click-cancel builds; parallel production; building sprites; **explosion FX
 3. ~~**Quick RTS QoL**~~ ✅ **DONE (M15).** Control groups (Shift/Ctrl+1–9 assign, digit select,
    double-tap centre — Shift is the reliable assign since Ctrl+digit is a browser tab-switch) + the
    repath fix (a placed/destroyed building now invalidates crossing unit paths immediately).
-4. **← NEXT: Smarter sim bot, THEN AI personalities** — the sim bot is a naive proxy (can't micro
-   Artillery → under-states the hard missions), which makes balance untrustworthy. Improve it
-   first, *then* add AI archetypes (Turtle/Rusher/Mechanized/Economist) to cut predictability.
-   **Balance-bound: re-run `npm run sim` and expect noisy multi-pass tuning.**
-5. **Objective / win-condition types** (defend / survive-timer / destroy-target), THEN expand the
+4. **~~AI personalities~~ ✅ SYSTEM DONE (M16); campaign tuning + smarter bot DEFERRED.** Built the
+   parameterized archetype system (balanced/turtle/rusher/mechanized/economist) — it works (swings
+   the sim 40–90pp) but assigning archetypes to campaign missions broke the ladder (rusher too easy,
+   mechanized/turtle too hard → 0% cells), so the campaign stays on `balanced` and per-mission
+   archetype tuning is deferred to a focused balance session / skirmish mode. The "smarter sim bot"
+   half was deliberately SKIPPED (Known-Issues: giving the bot Artillery made it worse).
+5. **← NEXT: Objective / win-condition types** (defend / survive-timer / destroy-target), THEN expand the
    campaign to 5–6 missions. Variety needs the *system* first — today victory is only
    "last building standing", so more lookalike missions won't feel varied. **Balance-bound.**
 
@@ -366,6 +394,15 @@ which is the unpredictable wildcard.
     tanks + Rocket Troopers + upgrades; keep it that way. • The bot under-states M3 (can't siege
     with Artillery), so M3's true human difficulty is lower than the bot win%.
 
+- **AI archetypes swing win-rate 40–90pp vs the fixed sim bot (M16).** Measured: assigning
+  `rusher` → M1 100/100/100 (infantry floods self-destruct on the player's turrets, so the mission
+  gets EASIER); `mechanized` → M2 87/7/3 and `turtle` → M3 87/0/0 (tanks / a turret-wall crush the
+  artillery-less bot, so those missions get much HARDER, hitting broken 0% cells). Lesson: archetype
+  power level is dominated by COMPOSITION vs the bot (infantry weak, tanks/turrets strong), not by
+  a tunable multiplier — so a personality can't be dropped into a campaign mission without a full
+  per-mission rebalance. The system ships with the campaign on `balanced` for exactly this reason;
+  archetype assignment belongs to a focused balance pass (or skirmish mode, where exact win-rates
+  matter less). Knobs live in `ai.ts PERSONALITIES`.
 - **Building sprites under 4 KB are INLINED by Vite, not emitted to `dist/assets/`.** Vite's
   default `assetsInlineLimit` (4096 B) base64-inlines small assets into the JS bundle. So
   `dist/assets/` only shows the 4 sprites over 4 KB (helipad/radar/refinery/yard) — barracks/
@@ -387,6 +424,20 @@ which is the unpredictable wildcard.
   Revisit if/when bumping Vite intentionally.
 
 ## Session log (terse; newest on top)
+- **2026-06-14** — **M16: AI personality system (item 4).** Refactored `EnemyAI` into one brain +
+  `PERSONALITIES` knobs (build order / aggressionMult / waveCapMult / rocketRatio / infantry reserves
+  / upgradeThreshold / harvesterTarget); 5 archetypes (balanced=historical, turtle, rusher,
+  mechanized, economist). Threaded `MissionConfig.aiPersonality?` through `game.ts` + `scripts/sim.ts`
+  (unset⇒balanced). Tried assigning rusher/mechanized/turtle to M1/M2/M3: sim = M1 100/100/100 (rusher
+  trivialises — infantry die on defence), M2 87/7/3 (mechanized tanks crush the bot), M3 87/0/0
+  (turtle turret-wall = broken 0% cells). ⇒ **reverted campaign to balanced** (ladder preserved:
+  Easy 100/100/100, Normal 67/50/30, Hard 80/70/33, passive 100% loss) and documented that
+  per-mission archetype tuning is the deferred chaotic work (belongs to a balance session / skirmish).
+  **Skipped the "smarter sim bot"** half deliberately (Known-Issues: bot+Artillery was worse). The
+  archetype system is real infrastructure (verified to produce distinct play) ready for skirmish.
+  Live E2E: campaign `EnemyAI.p.id==='balanced'`, no console errors. Files: `world/ai.ts` (rewrite),
+  `world/world.ts` (MissionConfig field), `game/game.ts`, `scripts/sim.ts`, `game/missions.ts`.
+  (committed + pushed 2026-06-14).
 - **2026-06-14** — **M15: Control groups + repath fix (item 3 / Quick RTS QoL).** (1) **Control
   groups**: `input.ts` now records `KeyPress{code,ctrl,shift}` (modifiers captured at press time, so
   a fast modifier release can't make assign read as select) + best-effort `preventDefault` on

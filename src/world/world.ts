@@ -56,6 +56,7 @@ export interface MissionConfig {
   brief: string;
   fog: boolean;
   aggression: number;
+  aiPersonality?: string; // EnemyAI archetype id (see ai.ts PERSONALITIES); default 'balanced'
   playerCredits: number;
   enemyCredits: number;
   buildings: { faction: Faction; defId: string; tx: number; ty: number }[];

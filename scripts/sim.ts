@@ -231,7 +231,7 @@ const MAX_T = 540;           // 9 min hard cap (draw beyond the target 3-8 min b
 
 function runMatch(missionIdx: number, difficulty: Difficulty, passive = false): MatchResult {
   const world = new World(MISSIONS[missionIdx], difficulty);
-  const ai = new EnemyAI(world, MISSIONS[missionIdx].aggression);
+  const ai = new EnemyAI(world, MISSIONS[missionIdx].aggression, MISSIONS[missionIdx].aiPersonality);
   const bot: { update(dt: number): void } = passive ? new PassiveBot(world) : new PlayerBot(world);
 
   let firstBuildingLoss = Infinity;

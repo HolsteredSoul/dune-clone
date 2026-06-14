@@ -1,6 +1,11 @@
 // A pragmatic skirmish AI for the enemy faction. On a think interval it: places any finished
 // building, starts the next structure in its build order, trains harvesters/army, and once it
 // has a wave, marches the whole army at the player's nearest building.
+//
+// One brain, several PERSONALITIES: a set of knobs (build order, aggression, army cap, comp,
+// economy focus) lets the enemy play turtle / rusher / mechanized / economist instead of a single
+// scripted style. 'balanced' reproduces the historical campaign behaviour exactly, so a mission
+// with no personality set is byte-identical to before.
 
 import { BUILDINGS, UNITS, DIFFICULTY } from './defs';
 import type { DifficultyMods } from './defs';
@@ -10,6 +15,7 @@ import type { Building } from './building';
 
 interface BuildStep { id: string; min: number; }
 
+// Default ("balanced") structure priorities — the historical campaign build order.
 const BUILD_ORDER: BuildStep[] = [
   { id: 'power', min: 1 },
   { id: 'refinery', min: 1 },
@@ -23,25 +29,81 @@ const BUILD_ORDER: BuildStep[] = [
   { id: 'refinery', min: 2 },
 ];
 
+// Turtle: turrets early and often, teches behind a wall, commits late but with a bigger army.
+const TURTLE_ORDER: BuildStep[] = [
+  { id: 'power', min: 1 }, { id: 'refinery', min: 1 }, { id: 'barracks', min: 1 },
+  { id: 'turret', min: 1 }, { id: 'power', min: 2 }, { id: 'turret', min: 2 },
+  { id: 'radar', min: 1 }, { id: 'factory', min: 1 }, { id: 'turret', min: 3 },
+  { id: 'power', min: 3 }, { id: 'refinery', min: 2 },
+];
+// Rusher: lean structures, defers the factory, floods cheap infantry and commits as early as the
+// anti-stomp grace allows.
+const RUSH_ORDER: BuildStep[] = [
+  { id: 'power', min: 1 }, { id: 'refinery', min: 1 }, { id: 'barracks', min: 1 },
+  { id: 'power', min: 2 }, { id: 'radar', min: 1 }, { id: 'turret', min: 1 },
+  { id: 'refinery', min: 2 }, { id: 'factory', min: 1 },
+];
+// Mechanized: rushes the War Factory and fields tank-heavy armies from two factories.
+const MECH_ORDER: BuildStep[] = [
+  { id: 'power', min: 1 }, { id: 'refinery', min: 1 }, { id: 'barracks', min: 1 },
+  { id: 'power', min: 2 }, { id: 'factory', min: 1 }, { id: 'radar', min: 1 },
+  { id: 'turret', min: 1 }, { id: 'power', min: 3 }, { id: 'refinery', min: 2 },
+  { id: 'factory', min: 2 }, { id: 'turret', min: 2 },
+];
+// Economist: double refinery early, more harvesters and upgrades, late but oversized army.
+const ECON_ORDER: BuildStep[] = [
+  { id: 'power', min: 1 }, { id: 'refinery', min: 1 }, { id: 'refinery', min: 2 },
+  { id: 'barracks', min: 1 }, { id: 'power', min: 2 }, { id: 'radar', min: 1 },
+  { id: 'factory', min: 1 }, { id: 'turret', min: 1 }, { id: 'power', min: 3 },
+  { id: 'refinery', min: 3 },
+];
+
+/** A behavioural archetype: knobs over the one EnemyAI brain. 'balanced' = historical behaviour. */
+export interface AIPersonality {
+  id: string;
+  name: string;
+  buildOrder: BuildStep[];
+  aggressionMult: number;    // scales effective aggression (wave size + how soon it commits)
+  waveCapMult: number;       // scales the standing-army / wave cap
+  rocketRatio: number;       // Rocket Troopers per rifleman (anti-armour / anti-air mix)
+  infReserveEco: number;     // credit reserve before flooding infantry, once economy is up
+  infReservePre: number;     // ... before the economy backbone exists (anti turn-1 rush)
+  upgradeThreshold: number;  // surplus credits before sinking one into a damage upgrade
+  harvesterTarget: number;   // desired harvester count (economy focus)
+}
+
+export const PERSONALITIES: Record<string, AIPersonality> = {
+  balanced:   { id: 'balanced',   name: 'Balanced',   buildOrder: BUILD_ORDER, aggressionMult: 1.0,  waveCapMult: 1.0,  rocketRatio: 0.5,  infReserveEco: 250, infReservePre: 700, upgradeThreshold: 1500, harvesterTarget: 2 },
+  turtle:     { id: 'turtle',     name: 'Turtle',     buildOrder: TURTLE_ORDER, aggressionMult: 0.85, waveCapMult: 1.15, rocketRatio: 0.6,  infReserveEco: 300, infReservePre: 700, upgradeThreshold: 1300, harvesterTarget: 2 },
+  rusher:     { id: 'rusher',     name: 'Rusher',     buildOrder: RUSH_ORDER,   aggressionMult: 1.35, waveCapMult: 0.9,  rocketRatio: 0.35, infReserveEco: 150, infReservePre: 450, upgradeThreshold: 2200, harvesterTarget: 2 },
+  mechanized: { id: 'mechanized', name: 'Mechanized', buildOrder: MECH_ORDER,   aggressionMult: 0.95, waveCapMult: 1.0,  rocketRatio: 0.4,  infReserveEco: 400, infReservePre: 800, upgradeThreshold: 1400, harvesterTarget: 2 },
+  economist:  { id: 'economist',  name: 'Economist',  buildOrder: ECON_ORDER,   aggressionMult: 0.85, waveCapMult: 1.2,  rocketRatio: 0.5,  infReserveEco: 300, infReservePre: 800, upgradeThreshold: 1200, harvesterTarget: 3 },
+};
+
 export class EnemyAI {
   private think = 1;
   private waveSize = 4;
+  private readonly waveCap: number; // personality-scaled army cap (was mods.waveCap)
   private holdUntil: number;        // sim time before which the AI won't launch its first wave
   private readonly mods: DifficultyMods;
+  private readonly p: AIPersonality;
 
-  constructor(private readonly world: World, aggression = 1) {
+  constructor(private readonly world: World, aggression = 1, personality = 'balanced') {
     this.mods = DIFFICULTY[world.difficulty];
-    const effAggression = aggression * this.mods.aggressionMult;
+    this.p = PERSONALITIES[personality] ?? PERSONALITIES.balanced;
+    this.waveCap = Math.max(4, Math.round(this.mods.waveCap * this.p.waveCapMult));
+    // Effective aggression blends mission intent × difficulty × personality.
+    const effAggression = aggression * this.mods.aggressionMult * this.p.aggressionMult;
     // First-wave size as a fraction of the wave cap, nudged by aggression. Kept small so the
     // opening wave is a probe, not a knockout: the game is decided over several exchanges
     // rather than one decisive ~30s blob. Subsequent waves grow toward the cap in commandArmy().
     const frac = Math.min(0.6, 0.34 + 0.14 * effAggression);
-    this.waveSize = Math.max(4, Math.round(this.mods.waveCap * frac));
+    this.waveSize = Math.max(4, Math.round(this.waveCap * frac));
     // Hold the opening army back for a grace period so a pre-placed standing army (M2/M3)
     // doesn't insta-rush at t=0; the grace shrinks with aggression so harder missions hit
-    // sooner. The FLOOR is the anti-stomp guard: even the most aggressive mission/difficulty
-    // grants the player time to stand up a defence before the first wave (no <90s stomps, and
-    // it keeps match length in the target band rather than ending in a sub-3-min rush).
+    // sooner. The FLOOR is the anti-stomp guard: even the most aggressive mission/difficulty/
+    // personality grants the player time to stand up a defence before the first wave (no <90s
+    // stomps, keeping match length in the target band rather than ending in a sub-3-min rush).
     this.holdUntil = Math.min(125, Math.max(70, 100 / effAggression));
   }
 
@@ -63,7 +125,7 @@ export class EnemyAI {
   }
 
   private buildNext(): void {
-    for (const step of BUILD_ORDER) {
+    for (const step of this.p.buildOrder) {
       if (this.count(step.id) >= step.min) continue;
       if (this.world.canStartBuilding('enemy', step.id)) {
         this.world.startBuilding('enemy', step.id);
@@ -104,7 +166,7 @@ export class EnemyAI {
     const credits = this.world.enemy.credits;
     const harvesters = this.world.units.filter(
       (u) => u.owner === 'enemy' && u.def.harvester).length;
-    if (owned.has('factory') && harvesters < 2) {
+    if (owned.has('factory') && harvesters < this.p.harvesterTarget) {
       this.world.queueUnit('enemy', 'harvester');
       return;
     }
@@ -122,12 +184,12 @@ export class EnemyAI {
     for (const q of this.world.enemy.unitQueues.values()) {
       for (const it of q) if (UNITS[it.defId]?.weapon) queuedArmed++;
     }
-    if (army + queuedArmed >= this.mods.waveCap + 2) return;
+    if (army + queuedArmed >= this.waveCap + 2) return;
     // Keep building its base before flooding cheap infantry: hold a reserve until the tech /
     // economy backbone exists, so the AI doesn't dump all its starting credits into a turn-1
     // infantry rush that overruns the player before they can stand up a defence.
     const hasEconomy = this.count('refinery') >= 2 || owned.has('factory');
-    const infReserve = hasEconomy ? 250 : 700;
+    const infReserve = hasEconomy ? this.p.infReserveEco : this.p.infReservePre;
     // Vehicles: mostly Battle Tanks, with a couple of early Recon Buggies for pressure/recon.
     if (owned.has('factory')) {
       if (this.unitCount('scout') < 2 && this.unitCount('tank') === 0 && credits > 450 * floor) {
@@ -137,9 +199,9 @@ export class EnemyAI {
       }
     }
     // Infantry: blend riflemen with Rocket Troopers (anti-armour, and the AI's only anti-air),
-    // roughly one rocket per two riflemen so the army can answer tanks and Ornithopters.
+    // mixed per the personality's rocketRatio so the army can answer tanks and Ornithopters.
     if (owned.has('barracks') && credits > infReserve * floor) {
-      const wantRocket = this.unitCount('rocket') < this.unitCount('infantry') * 0.5;
+      const wantRocket = this.unitCount('rocket') < this.unitCount('infantry') * this.p.rocketRatio;
       this.world.queueUnit('enemy', wantRocket ? 'rocket' : 'infantry');
     }
     if (owned.has('helipad') && credits > 800 * floor) {
@@ -155,7 +217,7 @@ export class EnemyAI {
    *  light (one upgrade, high threshold) so the AI never snowballs out of the difficulty band. */
   private buyUpgrades(): void {
     if (!this.world.ownedTypes('enemy').has('radar')) return;
-    if (this.world.enemy.credits > 1500
+    if (this.world.enemy.credits > this.p.upgradeThreshold
         && this.world.canPurchaseUpgrade('enemy', 'depleted_rounds')) {
       this.world.purchaseUpgrade('enemy', 'depleted_rounds');
     }
@@ -189,7 +251,7 @@ export class EnemyAI {
         this.world.commandAttack([u], target);
       }
     }
-    this.waveSize = Math.min(this.mods.waveCap, this.waveSize + 1);
+    this.waveSize = Math.min(this.waveCap, this.waveSize + 1);
   }
 
   private nearestPlayerBuilding(): Building | null {

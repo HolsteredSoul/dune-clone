@@ -45,7 +45,7 @@ export class Game {
   private load(i: number): void {
     this.missionIndex = i;
     this.world = new World(MISSIONS[i], this.difficulty);
-    this.ai = new EnemyAI(this.world, MISSIONS[i].aggression);
+    this.ai = new EnemyAI(this.world, MISSIONS[i].aggression, MISSIONS[i].aiPersonality);
     this.cam.centerOn(
       (MISSIONS[i].cameraStart.tx + 0.5) * TILE,
       (MISSIONS[i].cameraStart.ty + 0.5) * TILE,

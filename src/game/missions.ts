@@ -44,6 +44,10 @@ const MISSION_1: MissionConfig = (() => {
       + 'push out before their waves build up.',
     fog: true,
     aggression: 0.82,
+    // Campaign uses the 'balanced' default (preserves the sim-verified ladder). The other
+    // PERSONALITIES (rusher/mechanized/turtle/economist) are wired + work (they swing the sim
+    // win-rate 40–90pp) but assigning them needs a dedicated per-mission rebalance — deferred to
+    // a focused balance session / skirmish mode rather than guessed autonomously.
     playerCredits: 3000,
     enemyCredits: 1700,
     cameraStart: { tx: 10, ty: 48 },
