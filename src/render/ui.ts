@@ -33,7 +33,7 @@ export type UiAction =
   | { type: 'mute' }
   | { type: 'difficulty'; difficulty: Difficulty };
 
-export type Overlay = 'none' | 'brief' | 'won' | 'lost';
+export type Overlay = 'none' | 'title' | 'brief' | 'paused' | 'won' | 'lost';
 
 export class Ui {
   private structRects: { id: string; rect: Rect }[] = [];
@@ -43,6 +43,8 @@ export class Ui {
   private stanceRects: { stance: Stance; rect: Rect }[] = [];
   private diffRects: { d: Difficulty; rect: Rect }[] = [];
   private houseRects: { h: House; rect: Rect }[] = [];
+  private titleRects: { id: string; rect: Rect }[] = [];
+  private pauseRects: { id: string; rect: Rect }[] = [];
   private minimap: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private muteRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private screenW = 0;
@@ -53,7 +55,8 @@ export class Ui {
   get sidebarX(): number { return this.screenW - SIDEBAR_W; }
 
   draw(world: World, cam: Camera, screenW: number, screenH: number, overlay: Overlay,
-       selUnits: Unit[], difficulty: Difficulty, muted: boolean, toast: string | null = null): void {
+       selUnits: Unit[], difficulty: Difficulty, muted: boolean, toast: string | null = null,
+       hasSave = false): void {
     this.screenW = screenW;
     this.screenH = screenH;
     this.drawTopBar(world, muted);
@@ -62,8 +65,10 @@ export class Ui {
     this.stanceRects = [];
     this.diffRects = [];
     this.houseRects = [];
+    this.titleRects = [];
+    this.pauseRects = [];
     if (overlay === 'none' && selUnits.length > 0) this.drawCommandBar(selUnits);
-    if (overlay !== 'none') this.drawOverlay(world, overlay, difficulty);
+    if (overlay !== 'none') this.drawOverlay(world, overlay, difficulty, hasSave);
     if (toast) this.drawToast(toast);
   }
 
@@ -328,16 +333,23 @@ export class Ui {
     }
   }
 
-  private drawOverlay(world: World, overlay: Overlay, difficulty: Difficulty): void {
+  private drawOverlay(world: World, overlay: Overlay, difficulty: Difficulty, hasSave: boolean): void {
     const ctx = this.ctx;
     const w = this.screenW - SIDEBAR_W;
-    ctx.fillStyle = 'rgba(0,0,0,0.72)';
-    ctx.fillRect(0, 0, w, this.screenH);
-    const cx = w / 2;
+    // The title is a full-screen menu (no game yet); the in-play overlays dim only the play area.
+    const full = overlay === 'title';
+    const dimW = full ? this.screenW : w;
+    ctx.fillStyle = full ? 'rgba(0,0,0,0.9)' : 'rgba(0,0,0,0.72)';
+    ctx.fillRect(0, 0, dimW, this.screenH);
+    const cx = dimW / 2;
     let cy = this.screenH / 2 - 60;
 
     ctx.textAlign = 'center';
-    if (overlay === 'brief') {
+    if (overlay === 'title') {
+      this.drawTitle(cx, hasSave);
+    } else if (overlay === 'paused') {
+      this.drawPause(cx);
+    } else if (overlay === 'brief') {
       cy = this.screenH / 2 - 110; // flow the whole brief downward from here
       ctx.fillStyle = '#ffd479';
       ctx.font = 'bold 24px monospace';
@@ -410,6 +422,83 @@ export class Ui {
       ctx.font = 'bold 16px monospace';
       ctx.fillText(won ? '▶ Click to continue' : '▶ Click to retry', cx, this.screenH / 2 + 70);
     }
+    ctx.textAlign = 'left';
+  }
+
+  /** Main-menu / title screen. Entry point for the campaign and (later) skirmish; Continue is
+   *  dimmed when no quick-save exists. Button rects go to this.titleRects for hitTestTitle. */
+  private drawTitle(cx: number, hasSave: boolean): void {
+    const ctx = this.ctx;
+    let cy = this.screenH / 2 - 120;
+    ctx.fillStyle = '#ffd479';
+    ctx.font = 'bold 46px monospace';
+    ctx.fillText('DUNE', cx, cy);
+    cy += 44;
+    ctx.fillStyle = '#cbb06a';
+    ctx.font = 'bold 22px monospace';
+    ctx.fillText('CLONE', cx, cy);
+    cy += 30;
+    ctx.fillStyle = '#8fa0ad';
+    ctx.font = '12px monospace';
+    ctx.fillText('A real-time strategy skirmish for the spice', cx, cy);
+    cy += 36;
+
+    const items: { id: string; label: string; dim: boolean }[] = [
+      { id: 'campaign', label: 'CAMPAIGN', dim: false },
+      { id: 'continue', label: hasSave ? 'CONTINUE' : 'CONTINUE  (no save)', dim: !hasSave },
+    ];
+    this.menu(items, cx, cy, this.titleRects);
+  }
+
+  /** In-play pause screen. Sim is frozen while shown (Game.step early-returns on any overlay).
+   *  Button rects go to this.pauseRects for hitTestPause. */
+  private drawPause(cx: number): void {
+    const ctx = this.ctx;
+    let cy = this.screenH / 2 - 96;
+    ctx.fillStyle = '#dfe6ec';
+    ctx.font = 'bold 34px monospace';
+    ctx.fillText('PAUSED', cx, cy);
+    cy += 40;
+
+    const items = [
+      { id: 'resume', label: 'RESUME', dim: false },
+      { id: 'restart', label: 'RESTART MISSION', dim: false },
+      { id: 'menu', label: 'QUIT TO MENU', dim: false },
+    ];
+    cy = this.menu(items, cx, cy, this.pauseRects);
+
+    cy += 6;
+    ctx.textAlign = 'center'; // menuButton() leaves textAlign='left'
+    ctx.fillStyle = '#7f8a96';
+    ctx.font = '11px monospace';
+    ctx.fillText('P or Esc to resume', cx, cy);
+  }
+
+  /** Stack labelled menu buttons centered on cx; records rects into `out`; returns the next y. */
+  private menu(items: { id: string; label: string; dim: boolean }[], cx: number, startY: number,
+    out: { id: string; rect: Rect }[]): number {
+    const bw = 260, bh = 36, gap = 12;
+    let y = startY;
+    for (const it of items) {
+      const rect = { x: cx - bw / 2, y, w: bw, h: bh };
+      out.push({ id: it.id, rect });
+      this.menuButton(rect, it.label, it.dim);
+      y += bh + gap;
+    }
+    return y;
+  }
+
+  private menuButton(r: Rect, label: string, dim: boolean): void {
+    const ctx = this.ctx;
+    ctx.fillStyle = dim ? '#1b1e24' : '#23272e';
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.strokeStyle = dim ? '#2a2e36' : '#6a7480';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1);
+    ctx.fillStyle = dim ? '#5a6470' : '#e8edf2';
+    ctx.font = 'bold 15px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, r.x + r.w / 2, r.y + r.h / 2 + 5);
     ctx.textAlign = 'left';
   }
 
@@ -514,6 +603,18 @@ export class Ui {
   hitTestOverlay(x: number, y: number): OverlayPick | null {
     for (const h of this.houseRects) if (inRect(x, y, h.rect)) return { house: h.h };
     for (const d of this.diffRects) if (inRect(x, y, d.rect)) return { difficulty: d.d };
+    return null;
+  }
+
+  /** Hit-test the title-screen menu buttons; returns the button id ('campaign'|'continue') or null. */
+  hitTestTitle(x: number, y: number): string | null {
+    for (const b of this.titleRects) if (inRect(x, y, b.rect)) return b.id;
+    return null;
+  }
+
+  /** Hit-test the pause-screen menu buttons; returns the button id ('resume'|'restart'|'menu') or null. */
+  hitTestPause(x: number, y: number): string | null {
+    for (const b of this.pauseRects) if (inRect(x, y, b.rect)) return b.id;
     return null;
   }
 

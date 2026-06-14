@@ -34,6 +34,9 @@ export class Game {
   world!: World;
   private ai!: EnemyAI;
   overlay: Overlay = 'brief';
+  // Whether a compatible quick-save exists; computed on title-entry so the Continue button
+  // doesn't re-parse the save blob every frame while idling on the menu.
+  private titleHasSave = false;
   // Session-persistent across missions; deliberately NOT reset in load().
   private difficulty: Difficulty = 'normal';
   private playerHouse: House = 'atreides'; // chosen on the brief; enemy is the opposite house
@@ -59,6 +62,13 @@ export class Game {
     private missionIndex = 0,
   ) {
     this.load(missionIndex);
+    this.enterTitle(); // boot to the main menu; load() leaves mission 0 ready behind it
+  }
+
+  /** Switch to the title screen and refresh the cached has-save flag (gates Continue). */
+  private enterTitle(): void {
+    this.overlay = 'title';
+    this.titleHasSave = this.hasSave();
   }
 
   private load(i: number): void {
@@ -131,14 +141,12 @@ export class Game {
   private handleInput(): void {
     // Resume the AudioContext from within a real user gesture (browser autoplay policy).
     if (this.input.pointerEvents.length || this.input.keyPresses.length) audio.unlock();
+    // At most one overlay click per frame: a single click can change the overlay (e.g.
+    // title → brief), and a queued second click must not fall through to the next screen.
+    let overlayClickDone = false;
     for (const e of this.input.pointerEvents) {
       if (this.overlay !== 'none') {
-        if (e.kind === 'leftdown') {
-          const pick = this.overlay === 'brief' ? this.ui.hitTestOverlay(e.x, e.y) : null;
-          if (pick && 'difficulty' in pick) { this.difficulty = pick.difficulty; this.reloadBrief(); }
-          else if (pick && 'house' in pick) { this.playerHouse = pick.house; this.reloadBrief(); }
-          else this.advanceOverlay();
-        }
+        if (e.kind === 'leftdown' && !overlayClickDone) { this.onOverlayClick(e.x, e.y); overlayClickDone = true; }
         continue;
       }
       if (e.kind === 'leftdown') this.onLeftDown(e.x, e.y);
@@ -240,6 +248,54 @@ export class Game {
     this.load(this.missionIndex);
   }
 
+  /** Route a left-click while an overlay is showing. Title/pause have discrete buttons; brief
+   *  routes its pickers (null → begin); won/lost advance on any click. */
+  private onOverlayClick(x: number, y: number): void {
+    if (this.overlay === 'title') {
+      const id = this.ui.hitTestTitle(x, y);
+      if (id === 'campaign') this.startCampaign();
+      else if (id === 'continue' && this.titleHasSave) this.quickLoad(); // dim = truly disabled
+      return;
+    }
+    if (this.overlay === 'paused') {
+      const id = this.ui.hitTestPause(x, y);
+      if (id === 'resume') this.overlay = 'none';
+      // Restart replays immediately; load() sets 'brief', so clear it to drop straight into play.
+      else if (id === 'restart') { this.load(this.missionIndex); this.overlay = 'none'; }
+      else if (id === 'menu') this.enterTitle();
+      return;
+    }
+    if (this.overlay === 'brief') {
+      const pick = this.ui.hitTestOverlay(x, y);
+      if (pick && 'difficulty' in pick) { this.difficulty = pick.difficulty; this.reloadBrief(); }
+      else if (pick && 'house' in pick) { this.playerHouse = pick.house; this.reloadBrief(); }
+      else this.advanceOverlay();
+      return;
+    }
+    this.advanceOverlay(); // won / lost
+  }
+
+  /** Start the campaign from mission 1 (load() shows its brief; difficulty/house persist). */
+  private startCampaign(): void {
+    this.load(0);
+  }
+
+  /** Toggle the in-play pause overlay (sim freezes while any overlay is up). */
+  private togglePause(): void {
+    if (this.overlay === 'paused') this.overlay = 'none';
+    else if (this.overlay === 'none') { this.overlay = 'paused'; audio.play('select'); }
+  }
+
+  /** Whether a compatible quick-save exists (gates the title's Continue button). */
+  private hasSave(): boolean {
+    try {
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (!raw) return false;
+      const d = JSON.parse(raw) as SaveData;
+      return !!d && d.version === SAVE_VERSION;
+    } catch { return false; }
+  }
+
   private advanceOverlay(): void {
     if (this.overlay === 'brief') { this.overlay = 'none'; return; }
     if (this.overlay === 'won') {
@@ -316,16 +372,28 @@ export class Game {
 
   private onKey(k: KeyPress): void {
     const code = k.code;
+    // Mute works on every screen (the top-bar speaker is unreachable while an overlay eats clicks).
+    if (code === 'KeyM') { const muted = audio.toggleMute(); if (!muted) audio.play('select'); return; }
+    // Pause: P toggles in-play/paused; Esc resumes when paused (and cancels-then-pauses in play, below).
+    if (code === 'KeyP' && (this.overlay === 'none' || this.overlay === 'paused')) { this.togglePause(); return; }
+    if (this.overlay === 'paused') { if (code === 'Escape') this.overlay = 'none'; return; }
+    if (this.overlay !== 'none') return; // title/brief/won/lost: no gameplay hotkeys
+
     if (code.startsWith('Digit')) { this.handleGroupKey(k); return; }
     if (k.ctrl && code === 'KeyS') { this.quickSave(); return; }
     if (k.ctrl && code === 'KeyL') { this.quickLoad(); return; }
     const units = this.selectedUnits();
     switch (code) {
       case 'Escape':
-        this.placing = null;
-        this.pendingAttackMove = false;
-        this.selected.clear();
-        this.selectedBuilding = null;
+        // Cancel any pending action first; if there's nothing to cancel, open the pause menu.
+        if (this.placing || this.pendingAttackMove || this.selected.size > 0 || this.selectedBuilding) {
+          this.placing = null;
+          this.pendingAttackMove = false;
+          this.selected.clear();
+          this.selectedBuilding = null;
+        } else {
+          this.togglePause();
+        }
         break;
       case 'Space': {
         const home = this.world.buildings.find((b) => b.owner === 'player');
@@ -336,7 +404,6 @@ export class Game {
       case 'KeyS': this.world.commandStop(units); if (units.length) audio.play('move'); break;
       case 'KeyH': this.world.commandHold(units); if (units.length) audio.play('move'); break;
       case 'KeyG': this.world.commandGuard(units); if (units.length) audio.play('move'); break;
-      case 'KeyM': { const muted = audio.toggleMute(); if (!muted) audio.play('select'); break; }
       case 'KeyR': {
         const b = this.selectedBuilding;
         if (b && b.owner === 'player') {
@@ -470,8 +537,9 @@ export class Game {
         : null,
     };
     this.renderer.draw(this.world, this.cam, view);
+    const hasSave = this.overlay === 'title' && this.titleHasSave; // cached on title-entry, no per-frame I/O
     this.ui.draw(this.world, this.cam, this.cam.viewW + SIDEBAR_W, this.cam.viewH,
       this.overlay, selUnits, this.difficulty, audio.muted,
-      this.toastTtl > 0 ? this.toastMsg : null);
+      this.toastTtl > 0 ? this.toastMsg : null, hasSave);
   }
 }

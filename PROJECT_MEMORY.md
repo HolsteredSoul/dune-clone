@@ -26,14 +26,39 @@ fight → win/lose — works without breaking.
   audio layer, combat juice (damage numbers / hit-flash / infantry death poof), control
   groups + a clip-through repath fix, a (skirmish-ready) AI-personality system,
   objective/win-condition types (destroyAll/destroyTarget/survive/defend) with a new survive
-  mission, quick save/load, a Rocket Turret, building repair, and Atreides-vs-Harkonnen faction
-  asymmetry (houses)**, all on a re-verified difficulty ladder.
+  mission, quick save/load, a Rocket Turret, building repair, Atreides-vs-Harkonnen faction
+  asymmetry (houses), and a title/main-menu + in-play pause screen**, all on a re-verified
+  difficulty ladder.
   Latest `npm run sim` (30-40 runs/cell, after the smart-harvester rebalance): **Easy ~100/100/100,
   Normal ~60/46/40, Hard ~75/52/22** (M1/M2/M3 player win%, averaged over 2 noisy confirmation
   runs) — a clean difficulty *ramp* (M1 easiest → M3 the hard finale), no 0%/100% cells, passive
   loses 100%. The sim bot is a LOWER BOUND, especially on M3, since it never micros Artillery
   (which the M3 brief advises) — a human does better. The surface is noisy; read at ≥30 runs.
-- **Last done (newest):** **M23 — Minimap "under attack" ping.** The audio under-attack alert now
+- **Last done (newest):** **M24 — Title/main-menu + in-play pause screens.** The game now boots to a
+  full-screen **title** overlay (Campaign + Continue) instead of straight into Mission 1's brief, and a
+  **pause** overlay (Resume / Restart Mission / Quit to Menu) freezes play. Both are new `Overlay`
+  states (`'title'`, `'paused'`): `ui.ts` got explicit `drawTitle`/`drawPause` branches (placed
+  *before* the won/lost catch-all `else` — the documented gotcha) + a `menuButton`/`menu()` stacker +
+  `hitTestTitle`/`hitTestPause`; `game.ts` boots via `enterTitle()`, routes overlay clicks through a
+  single `onOverlayClick` (title: Campaign→`load(0)`→brief, Continue→`quickLoad` **only when a save
+  exists**), and `P` toggles pause while `Esc` cancels any pending action then pauses when idle
+  (resumes when paused); `M`-mute moved to the top of `onKey` so it works on every screen, and gameplay
+  hotkeys are now gated behind `overlay==='none'`. `step()` already freezes on `overlay !== 'none'`, so
+  pause needed **no sim change**. The title is the entry point for the upcoming **Skirmish** mode (next).
+  **Zero balance impact by construction** — `scripts/sim.ts` imports neither `game.ts` nor `ui.ts`, so
+  no sim run is needed (confirmed by both adversarial-review lenses). Review-driven hardening: (1) **one
+  overlay click per frame** so a fast double-click on a menu button can't fall through into the next
+  screen (verified: two CAMPAIGN downs in one frame → stays on brief); (2) `hasSave` is **cached on
+  title-entry**, not JSON-parsed every idle frame; (3) Continue is **truly disabled** (not just dimmed)
+  with no save; (4) accurate pause hint; (5) the title is a **full-screen** dim (covers the otherwise-
+  leaking mission-0 sidebar; `rightEdgeDarkFrac` 1.0). Verified: clean `build`; live E2E via
+  `window.game` + real UI rects — boot→title, all button routing, P/Esc pause with the sim frozen
+  (`world.time` delta 0 while paused), Esc cancel-vs-pause, the double-click guard, and a full
+  **save→quit-to-menu→Continue** round trip restoring credits (7777, not the diverged value); pixel-
+  sampling confirms both screens paint (gold title + button rects); no console errors. (Screenshot
+  timed out = the known backgrounded-tab/rAF artifact.) Files: `src/render/ui.ts`, `src/game/game.ts`.
+  **Committed + pushed to origin/main.**
+- **Prior:** **M23 — Minimap "under attack" ping.** The audio under-attack alert now
   has a visual partner: `World.damage` records `alertTime/alertX/alertY` at the last hit on a player
   entity (the old private `lastAlertTime` throttle field, now public + with a location), and
   `drawMinimap` draws a pulsing red ring there for ~2.5s so you can see WHERE you're being hit. Purely
@@ -264,18 +289,22 @@ fight → win/lose — works without breaking.
   the enemy AI now *gradually* fields Rockets/Scouts and buys one upgrade. Re-tuned the difficulty
   table + per-mission economy to restore a healthy ladder. (Full detail in the session log.)
 - **Next action (start here next session):** The whole numbered plan + every Strategic item +
-  cheap wins are **done** (M13–M23, all committed + live). **Recommended first item: a title/main-
-  menu screen + a pause screen — both are currently MISSING** (the game boots straight into Mission
-  1's brief; the brief is only a soft per-mission start, and there is no in-play pause — `Esc` just
-  cancels selection). Both are TIGHT + SAFE (UI/controller only, zero sim/balance impact) and
-  high-value: a title menu is also the natural home for **mode selection (Campaign / Skirmish)** and
-  a Continue (load-save) button. Implementation sketch: add `'title'` + `'paused'` to the `Overlay`
-  union (`ui.ts`); `Game` boots to `'title'`; a `P`/`Esc` toggle to `'paused'` during play (`step()`
-  already freezes while `overlay !== 'none'`, so pause is mostly a new overlay + a resume control);
-  draw both in `ui.drawOverlay`. THEN the bigger items: **skirmish mode** (free map + the existing
-  house/difficulty pickers + an AI-personality picker — title screen is its entry point),
-  **distinct rosters/superweapons** per house (deeper asymmetry — content + chaotic balance),
-  **unit veterancy** (balance-bound), then perf (only when it hurts) and multiplayer (last).
+  cheap wins + the title/pause UI are **done** (M13–M24, all committed + live). **Recommended next:
+  Skirmish mode** — the title screen (M24) is its entry point (a `'skirmish'` button to add between
+  Campaign and Continue). Orchestrate it PROPERLY per the methodology (it's the bigger item): an
+  **Explore phase** over `game/missions.ts` (mission/`MissionConfig` shape), `World` setup +
+  `MissionConfig` (objective/economy/pre-placed armies/`aiPersonality`/`playerHouse`/`enemyHouse`),
+  `world/ai.ts` `PERSONALITIES` (the 5 archetypes already exist), the brief's house/difficulty pickers
+  (`ui.ts` `hitTestOverlay`/`drawOverlay`), and save/load; a **short design panel** for the skirmish
+  flow (a skirmish config screen = free/parameterized map + the existing house + difficulty pickers +
+  a NEW AI-personality picker; how to launch a non-campaign World with no "next mission"); implement
+  **single-hand in dependency order** (it touches the shared `game.ts`/`world.ts`/`ui.ts`/`missions.ts`);
+  then an **adversarial review + a 30-run sim** (skirmish exercises real combat, so balance must be
+  re-read — but exact win-rates matter less than campaign) + live E2E. **Then** (smaller/later):
+  distinct rosters/superweapons per house (content + chaotic balance), unit veterancy (balance-bound),
+  perf (only when it hurts), multiplayer (last). Note for the title: when adding Skirmish, the
+  `hitTestTitle` ids + `drawTitle` menu list are the only UI touch-points; `onOverlayClick`'s title
+  branch routes them.
 
 > **Play live: https://holsteredsoul.github.io/dune-clone/** (GitHub Pages; repo is now PUBLIC).
 > Auto-deploys on every push to `main` via `.github/workflows/deploy.yml`. `vite.config.ts` sets
@@ -458,6 +487,14 @@ session log, newest on top).
   `World(config, difficulty, playerHouse?)` override; brief re-laid-out as a flowing layout
   (`wrap()` returns line count); `hitTestOverlay` → `{house}|{difficulty}`. Mirror-balanced so either
   matchup is in-band; sim unchanged. ✅
+- [x] **M23 — Minimap "under attack" ping.** `World.damage` records `alertTime/alertX/alertY`;
+  `drawMinimap` pulses a red ring there for ~2.5s (visual partner to the audio alert). Cosmetic;
+  zero sim impact. ✅
+- [x] **M24 — Title + pause screens.** New `Overlay` states `'title'` (full-screen main menu:
+  Campaign + Continue) and `'paused'` (Resume / Restart / Quit-to-Menu). Boots to the title;
+  `P`/`Esc` toggle pause (`step()` already freezes on any overlay). UI-only (`ui.ts` draw/hit-test +
+  `game.ts` routing); zero sim impact (sim never imports either file). Title is the Skirmish entry
+  point (added next). ✅
 
 ## Open tasks / current priorities
 
@@ -576,6 +613,24 @@ which is the unpredictable wildcard.
   Revisit if/when bumping Vite intentionally.
 
 ## Session log (terse; newest on top)
+- **2026-06-14** — **M24: Title/main-menu + in-play pause screens.** Built as a light-orchestration
+  session per the methodology (UI on shared files = one hand): a **Workflow understand-pass** (2 parallel
+  readers mapping `ui.ts` overlay/hit-test + `game.ts` boot/step/input/save), then I implemented
+  single-hand, then a **Workflow adversarial-review panel** (2 lenses: correctness/edge-cases +
+  regression risk). Added `Overlay` states `'title'`/`'paused'`: `ui.ts` `drawTitle`/`drawPause` (before
+  the won/lost catch-all `else`) + `menuButton`/`menu()` + `hitTestTitle`/`hitTestPause` + a full-screen
+  dim for the title; `game.ts` boots via `enterTitle()`, a single `onOverlayClick` routes title
+  (Campaign→`load(0)`, Continue→`quickLoad` only if a save exists) + pause (resume/restart/menu), `P`
+  toggles pause, `Esc` cancels-then-pauses (resumes when paused), `M`-mute hoisted to work everywhere,
+  gameplay hotkeys gated to `overlay==='none'`. Review found + I fixed: **one overlay click/frame**
+  (double-click can't skip the brief), **cached `hasSave`** (no per-frame JSON.parse of the save blob on
+  the idle title), **Continue truly disabled** (not just dimmed) with no save, accurate pause hint.
+  **Zero sim impact** — `scripts/sim.ts` imports neither file (both review lenses confirmed), so no sim
+  run. Verified: clean `build`; exhaustive live E2E via `window.game` + real UI rects (21+ assertions:
+  boot→title, every button route, P/Esc pause with `world.time` frozen, Esc cancel-vs-pause, the
+  double-click guard via two queued leftdowns in one frame, save→quit-to-menu→Continue restoring
+  credits, cache lights Continue after a save) + pixel-sampling both screens paint; no console errors.
+  Files: `src/render/ui.ts`, `src/game/game.ts`. (committed + pushed 2026-06-14).
 - **2026-06-14** — **M23: Minimap under-attack ping.** `World.damage` now records `alertTime/alertX/
   alertY` (the under-attack throttle field, made public + located); `ui.drawMinimap` pulses a red ring
   at that spot for ~2.5s — the visual partner to the audio alert. Additive + cosmetic; the emit
