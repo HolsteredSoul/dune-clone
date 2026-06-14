@@ -145,6 +145,14 @@ export const BUILDINGS: Record<string, BuildingDef> = {
     weapon: { damage: 26, range: 170, cooldown: 1.0, projectileSpeed: 420, type: 'cannon', canTargetAir: true, color: '#ffd27a' },
     color: '#6b6b75', trim: '#3d3d45',
   },
+  rocketturret: {
+    id: 'rocketturret', name: 'Rocket Turret', w: 1, h: 1, cost: 400, buildTime: 6,
+    maxHp: 520, power: -30, requires: ['radar'], sight: 7,
+    // Dedicated anti-armour defence: rocket damage (1.4× vs heavy/air), splash, and longer range
+    // than the Gun Turret so it can outrange attacking tanks. The real answer to armour pushes.
+    weapon: { damage: 30, range: 200, cooldown: 1.7, projectileSpeed: 360, type: 'rocket', canTargetAir: true, splash: 18, color: '#ffb36a' },
+    color: '#6b5a55', trim: '#3d322f',
+  },
   factory: {
     id: 'factory', name: 'War Factory', w: 3, h: 2, cost: 700, buildTime: 8,
     maxHp: 700, power: -30, requires: ['radar'], produces: 'vehicle', sight: 3,
@@ -159,7 +167,7 @@ export const BUILDINGS: Record<string, BuildingDef> = {
 
 // Order buildings appear in the construction-yard menu.
 export const BUILD_MENU_ORDER = [
-  'power', 'refinery', 'barracks', 'turret', 'radar', 'factory', 'helipad',
+  'power', 'refinery', 'barracks', 'turret', 'radar', 'rocketturret', 'factory', 'helipad',
 ];
 
 // ---- Units --------------------------------------------------------------------------------

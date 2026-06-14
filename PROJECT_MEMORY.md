@@ -32,7 +32,18 @@ fight → win/lose — works without breaking.
   runs) — a clean difficulty *ramp* (M1 easiest → M3 the hard finale), no 0%/100% cells, passive
   loses 100%. The sim bot is a LOWER BOUND, especially on M3, since it never micros Artillery
   (which the M3 brief advises) — a human does better. The surface is noisy; read at ≥30 runs.
-- **Last done (newest):** **M18 — Quick save/load (Strategic item).** `Ctrl+S` snapshots the full
+- **Last done (newest):** **M19 — Rocket Turret (anti-armour defence, data-only).** New `BUILDINGS.
+  rocketturret` (1×1, cost 400, requires Radar, `power -30`, hp 520) with a **rocket-type** weapon
+  (damage 30, range 200 > the Gun Turret's 170, cooldown 1.7, splash 18, `canTargetAir`). Rocket vs
+  heavy = 1.4× so it's the real answer to the tank-heavy enemy pushes, and its longer range lets it
+  outrange attacking tanks. Added to `BUILD_MENU_ORDER` after Radar. Pure data — the engine's generic
+  building/turret machinery (draw turret head + muzzle flash, `updateTurrets` firing, sidebar icon,
+  `canStartBuilding`/place pipeline) handles it with no new code; no sprite ⇒ procedural fallback.
+  **Zero sim impact** (neither the AI build order nor the sim PlayerBot build order lists it, so the
+  bot-vs-bot ladder can't move). Verified: clean `build`; live E2E — Radar-gated (`canStartBuilding`
+  false→true once Radar owned), appears in the menu, builds through the real pipeline; **30-run sim
+  unchanged**. **Committed + pushed to origin/main.**
+- **Prior:** **M18 — Quick save/load (Strategic item).** `Ctrl+S` snapshots the full
   game to `localStorage`, `Ctrl+L` restores it (one slot, play-only, with an on-screen toast).
   `World.serialize()/deserialize()` capture/restore the entire sim as plain JSON: time, result, the
   **random per-mission terrain + spice arrays** (must be saved — they're `Math.random`-generated, not
@@ -203,9 +214,9 @@ fight → win/lose — works without breaking.
 - **Next action:** Items 1–5 + **save/load** are **done**. The big remaining flagship is **faction
   asymmetry (Atreides vs Harkonnen)** — distinct rosters/bonuses instead of today's generic
   green-vs-red with identical units; a large, balance-heavy lift best given its own focused session.
-  Cheaper safe wins still open: **repair mechanics** (player utility), a dedicated **rocket/AA turret**
-  (data-only in `defs.ts`), **skirmish mode** (would finally exercise the M16 AI personalities), and
-  **unit veterancy**. All current work is committed + live.
+  Cheaper safe wins still open: **repair mechanics** (player utility), **skirmish mode** (would
+  finally exercise the M16 AI personalities), and **unit veterancy**. (The **rocket/AA turret** is
+  now done — M19.) All current work is committed + live.
 
 > **Play live: https://holsteredsoul.github.io/dune-clone/** (GitHub Pages; repo is now PUBLIC).
 > Auto-deploys on every push to `main` via `.github/workflows/deploy.yml`. `vite.config.ts` sets
@@ -358,6 +369,9 @@ session log, newest on top).
   `World.serialize/deserialize` (terrain+spice+fog arrays, players, buildings+units with ids
   preserved; transient FX dropped) + `EnemyAI.serialize/restore`; `reserveUnit/BuildingIds` bump the
   id counters. Round-trip proven byte-lossless live; sim unchanged (additive). ✅
+- [x] **M19 — Rocket Turret.** Data-only `BUILDINGS.rocketturret` (Radar-gated anti-armour defence:
+  rocket-type, range 200, splash, `canTargetAir`) + `BUILD_MENU_ORDER`. Reuses the generic turret
+  machinery; zero sim impact (no bot builds it). ✅
 
 ## Open tasks / current priorities
 
@@ -476,6 +490,16 @@ which is the unpredictable wildcard.
   Revisit if/when bumping Vite intentionally.
 
 ## Session log (terse; newest on top)
+- **2026-06-14** — **M19: Rocket Turret (cheap "Then" item).** Added `BUILDINGS.rocketturret` — a
+  Radar-gated 1×1 anti-armour turret (rocket weapon: dmg 30, range 200, cooldown 1.7, splash 18,
+  `canTargetAir`; 520 hp, cost 400, power -30) + an entry in `BUILD_MENU_ORDER`. Rocket vs heavy 1.4×
+  + longer range than the Gun Turret = the dedicated counter to tank pushes. Pure data: the generic
+  building/turret code (renderer turret-head + muzzle flash, `updateTurrets`, sidebar icon,
+  `canStartBuilding`/`startBuilding`/`placeReady`) handles it; tsc validates the def against the
+  `BuildingDef`/`WeaponDef` interfaces. Zero sim impact — neither `ai.ts` BUILD_ORDER nor
+  `sim.ts` PLAYER_BUILD_ORDER lists it, so the ladder can't move. Verified: clean `build`; live E2E
+  (Radar prereq gates it false→true, shows in the menu, builds via the real pipeline); 30-run sim
+  unchanged. Files: `world/defs.ts`. (committed + pushed 2026-06-14).
 - **2026-06-14** — **M18: Quick save/load (Strategic item).** `Ctrl+S`/`Ctrl+L` snapshot+restore the
   whole game to a single `localStorage` slot (play-only, toast feedback). `World.serialize()` →
   plain JSON: time/result, the random per-mission **terrain + spice** arrays (saved, not regenerated)
