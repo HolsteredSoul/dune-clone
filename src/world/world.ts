@@ -137,7 +137,10 @@ export class World {
   result: GameResult = 'playing';
   time = 0;
   private fogTimer = 0;
-  private lastAlertTime = -99; // throttles the player "under attack" cue (see damage())
+  // Most recent player "under attack" hit — drives the audio cue throttle AND the minimap ping.
+  alertTime = -99;
+  alertX = 0;
+  alertY = 0;
 
   constructor(config: MissionConfig, difficulty: Difficulty = 'normal', playerHouse?: House) {
     this.config = config;
@@ -1008,10 +1011,12 @@ export class World {
         kind: infantry ? 'poof' : 'blast',
       });
       this.emit(building ? 'explosion-big' : 'explosion', ex, ey);
-    } else if (target.owner === 'player' && this.time - this.lastAlertTime > 0.5) {
+    } else if (target.owner === 'player' && this.time - this.alertTime > 0.5) {
       // A player unit/building is taking fire (and survived the hit): nudge an "under attack"
-      // alert. Coarse-throttled here; the audio layer enforces the real ~8s spacing.
-      this.lastAlertTime = this.time;
+      // alert + record where, for the audio cue and the minimap ping. Coarse-throttled here;
+      // the audio layer enforces the real ~8s spacing.
+      this.alertTime = this.time;
+      this.alertX = ex; this.alertY = ey;
       this.emit('under-attack');
     }
   }

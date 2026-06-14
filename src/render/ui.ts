@@ -313,6 +313,19 @@ export class Ui {
     ctx.lineWidth = 1;
     ctx.strokeRect(x + (cam.x / TILE) * sx, y + (cam.y / TILE) * sy,
       (cam.viewW / TILE) * sx, (cam.viewH / TILE) * sy);
+
+    // "Under attack" ping — a pulsing red ring at the last hit on a player entity (~2.5s).
+    const sinceAlert = world.time - world.alertTime;
+    if (sinceAlert >= 0 && sinceAlert < 2.5) {
+      const ax = x + (world.alertX / TILE) * sx;
+      const ay = y + (world.alertY / TILE) * sy;
+      const pulse = 1 - ((sinceAlert % 0.6) / 0.6); // re-pulses every 0.6s
+      ctx.strokeStyle = `rgba(255,80,70,${0.85 * pulse})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(ax, ay, 2 + pulse * 6, 0, Math.PI * 2);
+      ctx.stroke();
+    }
   }
 
   private drawOverlay(world: World, overlay: Overlay, difficulty: Difficulty): void {

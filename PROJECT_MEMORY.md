@@ -33,7 +33,14 @@ fight → win/lose — works without breaking.
   runs) — a clean difficulty *ramp* (M1 easiest → M3 the hard finale), no 0%/100% cells, passive
   loses 100%. The sim bot is a LOWER BOUND, especially on M3, since it never micros Artillery
   (which the M3 brief advises) — a human does better. The surface is noisy; read at ≥30 runs.
-- **Last done (newest):** **M22 — House picker on the brief.** The player now chooses Atreides or
+- **Last done (newest):** **M23 — Minimap "under attack" ping.** The audio under-attack alert now
+  has a visual partner: `World.damage` records `alertTime/alertX/alertY` at the last hit on a player
+  entity (the old private `lastAlertTime` throttle field, now public + with a location), and
+  `drawMinimap` draws a pulsing red ring there for ~2.5s so you can see WHERE you're being hit. Purely
+  additive + cosmetic — the under-attack emit throttle is unchanged, so **zero sim impact** (no sim
+  run needed). Verified: clean `build`; live E2E (a hit on a player unit records the exact location,
+  minimap renders the ping with no error); no console errors. **Committed + pushed to origin/main.**
+- **Prior:** **M22 — House picker on the brief.** The player now chooses Atreides or
   Harkonnen on the mission-brief screen (two buttons next to the difficulty picker; session-persistent
   like difficulty); the enemy is always the opposite house (`otherHouse`). `World` constructor gained
   an optional `playerHouse` override (player = pick, enemy = opposite); `Game.playerHouse` threads it
@@ -562,6 +569,12 @@ which is the unpredictable wildcard.
   Revisit if/when bumping Vite intentionally.
 
 ## Session log (terse; newest on top)
+- **2026-06-14** — **M23: Minimap under-attack ping.** `World.damage` now records `alertTime/alertX/
+  alertY` (the under-attack throttle field, made public + located); `ui.drawMinimap` pulses a red ring
+  at that spot for ~2.5s — the visual partner to the audio alert. Additive + cosmetic; the emit
+  throttle is unchanged → zero sim impact. Verified: clean build; live E2E (alert records the exact
+  hit location, minimap renders the ping); no console errors. Files: `world/world.ts`, `render/ui.ts`.
+  (committed + pushed 2026-06-14).
 - **2026-06-14** — **M22: House picker on the brief.** Player picks Atreides/Harkonnen on the brief
   (session-persistent like difficulty; enemy = `otherHouse`). `World` ctor gained an optional
   `playerHouse` override (player = pick, enemy = opposite); `Game.playerHouse` threads it through
