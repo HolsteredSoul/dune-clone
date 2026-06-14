@@ -8,6 +8,14 @@ export interface PointerEvent2 {
   y: number;
 }
 
+/** A discrete key press with the modifier state captured at press time (so control-group
+ *  assign-vs-select isn't ambiguous if a modifier is released before the frame processes it). */
+export interface KeyPress {
+  code: string;
+  ctrl: boolean;
+  shift: boolean;
+}
+
 export class Input {
   private readonly keys = new Set<string>();
   mouseX = 0;
@@ -16,11 +24,15 @@ export class Input {
   rightDown = false;
 
   readonly pointerEvents: PointerEvent2[] = [];
-  readonly keyPresses: string[] = [];
+  readonly keyPresses: KeyPress[] = [];
 
   constructor(target: HTMLCanvasElement) {
     window.addEventListener('keydown', (e) => {
-      if (!e.repeat) this.keyPresses.push(e.code);
+      // Best-effort suppress browser defaults for modifier+digit (control groups). Ctrl+digit is
+      // a reserved tab-switch in most browsers and may not be preventable — Shift+digit is the
+      // reliable assign modifier (see Game.onKey).
+      if ((e.ctrlKey || e.shiftKey) && /^Digit[1-9]$/.test(e.code)) e.preventDefault();
+      if (!e.repeat) this.keyPresses.push({ code: e.code, ctrl: e.ctrlKey, shift: e.shiftKey });
       this.keys.add(e.code);
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));

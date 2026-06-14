@@ -969,6 +969,15 @@ export class World {
         }
       }
     }
+    // The block grid just changed (a building was placed or destroyed). Any unit whose active
+    // path now runs through a blocked tile must repath immediately, or it would clip through the
+    // new building for up to `repathTimer` (0.4s). (Units is empty during the constructor's calls.)
+    for (const u of this.units) {
+      if (!u.alive || u.path.length === 0) continue;
+      for (const wp of u.path) {
+        if (this.blocked[wp.ty * MAP_W + wp.tx]) { u.clearPath(); u.repathTimer = 0; break; }
+      }
+    }
   }
 
   private refreshFog(): void {

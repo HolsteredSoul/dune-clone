@@ -48,6 +48,9 @@ then click map to place) & queues units (**right-click a sidebar icon to cancel 
 multiple Barracks/War Factories build in parallel) · minimap to jump · **arrows/edge/minimap pan** (WASD
 freed for commands). Unit commands (selection): `A` attack-move · `S` stop · `H` hold · `G`
 guard · or use the on-screen command bar (incl. stance: Aggressive/Guard/Hold-Ground/Hold-Fire).
+**Control groups:** `Shift`/`Ctrl`+`1`–`9` assigns the selection to a group; the bare digit selects
+it; double-tap the digit to re-centre the camera on the group. (Shift is the reliable assign — bare
+Ctrl+digit is a browser tab-switch on most browsers.)
 **Rally points:** select a friendly producer (yard/barracks/factory/helipad) with no units
 selected, then right-click to set where its new units gather (right-click the building to clear).
 **Difficulty:** pick Easy/Normal/Hard on the mission brief screen (persists for the session).

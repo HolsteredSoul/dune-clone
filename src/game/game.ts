@@ -3,7 +3,7 @@
 // frame() processes discrete input once per rendered frame and draws.
 
 import type { Camera } from '../core/camera';
-import type { Input } from '../core/input';
+import type { Input, KeyPress } from '../core/input';
 import type { Renderer, ViewState } from '../render/renderer';
 import type { Ui, Overlay } from '../render/ui';
 import { World } from '../world/world';
@@ -28,6 +28,9 @@ export class Game {
   private pendingAttackMove = false;
   private dragStart: { x: number; y: number } | null = null;
   private dragging = false;
+  // Control groups: digit selects, Ctrl/Shift+digit assigns, double-tap a digit centers the camera.
+  private readonly groups = new Map<number, number[]>();
+  private lastGroupTap: { n: number; t: number } = { n: -1, t: 0 };
 
   constructor(
     private readonly cam: Camera,
@@ -53,6 +56,8 @@ export class Game {
     this.pendingAttackMove = false;
     this.dragging = false;
     this.dragStart = null;
+    this.groups.clear();
+    this.lastGroupTap = { n: -1, t: 0 };
     this.overlay = 'brief';
   }
 
@@ -120,6 +125,39 @@ export class Game {
       else if (e.kind === 'rightdown') this.onRightDown(e.x, e.y);
     }
     for (const key of this.input.keyPresses) this.onKey(key);
+  }
+
+  /** Control groups: Ctrl/Shift+digit assigns the current selection to a group; a plain digit
+   *  selects that group; double-tapping the digit (within 350ms) also re-centres the camera on it.
+   *  (Shift+digit is the reliable assign — Ctrl+digit is a browser tab-switch in most browsers.) */
+  private handleGroupKey(k: KeyPress): void {
+    const n = Number(k.code.slice(5));
+    if (!(n >= 1 && n <= 9)) return;
+    if (k.ctrl || k.shift) {
+      const ids = [...this.selected];
+      if (ids.length) { this.groups.set(n, ids); audio.play('select'); }
+      else this.groups.delete(n);
+      return;
+    }
+    const ids = this.groups.get(n);
+    const living = ids ? ids.filter((id) => { const u = this.world.findUnit(id); return !!u && u.alive; }) : [];
+    if (living.length === 0) { if (ids) this.groups.delete(n); return; }
+    this.selected.clear();
+    this.selectedBuilding = null;
+    for (const id of living) this.selected.add(id);
+    audio.play('select');
+    const now = performance.now();
+    if (this.lastGroupTap.n === n && now - this.lastGroupTap.t < 350) this.centerOnGroup(living);
+    this.lastGroupTap = { n, t: now };
+  }
+
+  private centerOnGroup(ids: number[]): void {
+    let sx = 0, sy = 0, c = 0;
+    for (const id of ids) {
+      const u = this.world.findUnit(id);
+      if (u && u.alive) { sx += u.x; sy += u.y; c++; }
+    }
+    if (c) this.cam.centerOn(sx / c, sy / c);
   }
 
   /** Rebuild the current mission so the newly-picked difficulty's handicaps take effect
@@ -202,7 +240,9 @@ export class Game {
     }
   }
 
-  private onKey(code: string): void {
+  private onKey(k: KeyPress): void {
+    const code = k.code;
+    if (code.startsWith('Digit')) { this.handleGroupKey(k); return; }
     const units = this.selectedUnits();
     switch (code) {
       case 'Escape':

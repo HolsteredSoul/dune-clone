@@ -23,14 +23,29 @@ fight → win/lose — works without breaking.
 - **▶ Current phase:** COMPLETE — full 3-mission RTS with rally points, difficulty levels,
   smart unit AI/stances/commands, **armor/damage-type rock-paper-scissors combat, anti-air
   discipline, an expanded unit roster (Rocket/Scout/Artillery), Tech upgrades, a procedural
-  audio layer, and combat juice (damage numbers / hit-flash / infantry death poof)**, all on a
-  re-verified difficulty ladder.
+  audio layer, combat juice (damage numbers / hit-flash / infantry death poof), and control
+  groups + a clip-through repath fix**, all on a re-verified difficulty ladder.
   Latest `npm run sim` (30-40 runs/cell, after the smart-harvester rebalance): **Easy ~100/100/100,
   Normal ~60/46/40, Hard ~75/52/22** (M1/M2/M3 player win%, averaged over 2 noisy confirmation
   runs) — a clean difficulty *ramp* (M1 easiest → M3 the hard finale), no 0%/100% cells, passive
   loses 100%. The sim bot is a LOWER BOUND, especially on M3, since it never micros Artillery
   (which the M3 brief advises) — a human does better. The surface is noisy; read at ≥30 runs.
-- **Last done (newest):** **M14 — Combat juice (cosmetic, zero balance impact).** Three additions,
+- **Last done (newest):** **M15 — Control groups + clip-through repath fix (item 3 / Quick RTS QoL).**
+  (1) **Control groups**: `Shift`/`Ctrl`+`1`–`9` assigns the current selection to a group, the bare
+  digit selects it, double-tapping a digit (≤350ms) re-centres the camera on the group. Input now
+  captures modifier state *with* each keypress (`KeyPress{code,ctrl,shift}`) so assign-vs-select is
+  unambiguous; `input.ts` best-effort `preventDefault`s modifier+digit (Shift is the reliable assign
+  — bare Ctrl+digit is a browser tab-switch on most browsers). Groups live on `game.ts`
+  (`Map<number,number[]>`, pruned of dead units on select, cleared on mission load). (2) **Repath
+  fix**: `world.rebuildBlocked()` (called whenever a building is placed/destroyed) now clears the
+  path of any unit whose route crosses a newly-blocked tile + resets its `repathTimer`, so a unit no
+  longer clips through a just-placed building for up to 0.4s — it recomputes next tick. Verified:
+  clean `build`; **30-run sim** clean ramp + passive 100% loss (Easy 100/100/100, Normal 57/50/37,
+  Hard 73/53/40 — the repath change left balance healthy); live E2E via `window.game` (Shift+digit
+  AND Ctrl+digit assign 3 units, plain digit re-selects them, double-tap centred the camera; placing
+  a building on a 13-waypoint path cleared it instantly, `repathTimer→0`; no console errors).
+  **Committed + pushed to origin/main.**
+- **Prior:** **M14 — Combat juice (cosmetic, zero balance impact).** Three additions,
   all renderer-side: (1) **floating damage numbers** — `world.damage()` pushes a `{x,y,amount,ttl,
   friendly}` to a new `world.popups[]` (guarded by `IN_BROWSER` so the headless sim never allocates
   them); `renderer.drawPopups` floats them up + fades, fog-gated + off-screen-culled, colored
@@ -132,10 +147,11 @@ fight → win/lose — works without breaking.
   (Depleted Rounds / Composite Armor / Turbo Drives / Salvage Logistics) hosted at the Radar, and
   the enemy AI now *gradually* fields Rockets/Scouts and buys one upgrade. Re-tuned the difficulty
   table + per-mission economy to restore a healthy ladder. (Full detail in the session log.)
-- **Next action:** Audio (item 1) + Combat juice (item 2) are **done**. Next up the **▼ Development
-  plan** is **item 3 — Quick RTS QoL**: control groups (Ctrl+1–9, currently absent) + force a repath
-  when a building is placed/destroyed on a unit's active path (today a unit can clip through a
-  just-placed building for up to `repathTimer` 0.4s). All current work is committed + live.
+- **Next action:** Items 1–3 (audio, combat juice, control groups + repath) are **done**. Next up
+  the **▼ Development plan** is **item 4 — Smarter sim bot, THEN AI personalities** (Turtle / Rusher /
+  Mechanized / Economist). ⚠ This is the BALANCE-BOUND wildcard — expect noisy multi-pass `sim`
+  tuning, and recall the Known-Issues lesson that giving the sim bot Artillery made it WORSE. All
+  current work is committed + live.
 
 > **Play live: https://holsteredsoul.github.io/dune-clone/** (GitHub Pages; repo is now PUBLIC).
 > Auto-deploys on every push to `main` via `.github/workflows/deploy.yml`. `vite.config.ts` sets
@@ -263,6 +279,10 @@ session log, newest on top).
   guarded), hit-flash (white tint via a `hitFlash` timestamp on units/buildings), and an infantry
   death "poof" (grey dust, vs the fiery blast vehicles/buildings get) via `Effect.kind`. Renderer +
   a few `world.damage()` lines; zero balance impact. ✅
+- [x] **M15 — Control groups + repath fix (Quick RTS QoL).** Shift/Ctrl+1–9 assign, digit selects,
+  double-tap centres; `KeyPress{code,ctrl,shift}` captures modifiers at press time. `rebuildBlocked()`
+  invalidates any unit path crossing a newly placed/destroyed building so units stop clipping
+  through for ~0.4s. ✅
 
 ## Open tasks / current priorities
 
@@ -287,10 +307,10 @@ right-click-cancel builds; parallel production; building sprites; **explosion FX
    poof, all renderer-side, zero balance impact. (Note: units *did* already spawn a death blast via
    the M11 FX — M14 added the poof differentiation + numbers + flash. Recoil was skipped as
    redundant with the flash.)
-3. **← NEXT: Quick RTS QoL** — control groups (Ctrl+1–9, *currently absent*) + the one real Phase-0 fix:
-   force a repath when a building is placed/destroyed on a unit's active path (today a unit can
-   clip through a just-placed building for up to `repathTimer` 0.4s — cosmetic, minor).
-4. **Smarter sim bot, THEN AI personalities** — the sim bot is a naive proxy (can't micro
+3. ~~**Quick RTS QoL**~~ ✅ **DONE (M15).** Control groups (Shift/Ctrl+1–9 assign, digit select,
+   double-tap centre — Shift is the reliable assign since Ctrl+digit is a browser tab-switch) + the
+   repath fix (a placed/destroyed building now invalidates crossing unit paths immediately).
+4. **← NEXT: Smarter sim bot, THEN AI personalities** — the sim bot is a naive proxy (can't micro
    Artillery → under-states the hard missions), which makes balance untrustworthy. Improve it
    first, *then* add AI archetypes (Turtle/Rusher/Mechanized/Economist) to cut predictability.
    **Balance-bound: re-run `npm run sim` and expect noisy multi-pass tuning.**
@@ -367,6 +387,22 @@ which is the unpredictable wildcard.
   Revisit if/when bumping Vite intentionally.
 
 ## Session log (terse; newest on top)
+- **2026-06-14** — **M15: Control groups + repath fix (item 3 / Quick RTS QoL).** (1) **Control
+  groups**: `input.ts` now records `KeyPress{code,ctrl,shift}` (modifiers captured at press time, so
+  a fast modifier release can't make assign read as select) + best-effort `preventDefault` on
+  modifier+digit. `game.ts` holds `groups: Map<number,number[]>` + `handleGroupKey`: Ctrl/Shift+digit
+  assigns the selection, bare digit selects (pruning dead ids), a 2nd tap within 350ms re-centres via
+  `centerOnGroup` (centroid). Groups clear on mission load. Shift is the documented reliable assign —
+  Ctrl+digit is a reserved browser tab-switch. (2) **Repath fix**: `world.rebuildBlocked()` (already
+  called on every building add/remove) now also walks each unit's path and, if any waypoint is now
+  blocked, `clearPath()` + `repathTimer=0` so the unit recomputes next tick instead of clipping
+  through a just-placed building for up to 0.4s. (Units array is empty during the constructor's
+  rebuildBlocked calls, so no spurious work at setup.) Verified: clean `build`; **30-run sim** clean
+  ramp + passive 100% loss (Easy 100/100/100, Normal 57/50/37, Hard 73/53/40 — the movement change
+  left balance healthy); live E2E (Shift+digit AND Ctrl+digit assigned 3 units, plain digit
+  re-selected them, double-tap centred the camera y 0→1234; a building dropped on a 13-waypoint path
+  cleared it instantly with repathTimer→0; no console errors). Files: `core/input.ts`, `game/game.ts`,
+  `world/world.ts`, docs. (committed + pushed 2026-06-14).
 - **2026-06-14** — **M14: Combat juice (cosmetic).** Item 2 of the dev plan. All renderer-side,
   reusing the audio session's sim-purity discipline. (1) **Floating damage numbers**: `world.damage()`
   pushes `{x,y,amount,ttl,friendly}` to a new `world.popups[]` (guarded by `IN_BROWSER` — renamed
