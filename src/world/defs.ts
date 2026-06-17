@@ -29,12 +29,16 @@ export interface DifficultyMods {
   thinkInterval: number;    // seconds between AI think ticks (lower = faster cadence)
   waveCap: number;          // max army size the AI masses before each attack
   trainCreditFloor: number; // multiplier on the AI's train credit thresholds
+  siegeMult: number;        // scales the AI's Artillery count (the turtle-breaking siege ramp lever)
 }
 
 export const DIFFICULTY: Record<Difficulty, DifficultyMods> = {
-  easy:   { label: 'EASY',   enemyCreditMult: 0.70, playerCreditMult: 1.25, aggressionMult: 0.75, thinkInterval: 1.8, waveCap: 8,  trainCreditFloor: 1.25 },
-  normal: { label: 'NORMAL', enemyCreditMult: 1.0,  playerCreditMult: 1.1,  aggressionMult: 1.0,  thinkInterval: 1.3,  waveCap: 13, trainCreditFloor: 0.95 },
-  hard:   { label: 'HARD',   enemyCreditMult: 1.08, playerCreditMult: 1.05, aggressionMult: 1.08, thinkInterval: 1.2,  waveCap: 14, trainCreditFloor: 0.92 },
+  // The Artillery siege (siegeMult) is the turtle-BREAKER and is reserved for Hard so the ramp is
+  // clean: Easy = weak army the player out-holds; Normal = a bigger army that pressures via mass but
+  // can't crack a dug-in base (player can hold/win with good defence); Hard = siege that breaks it.
+  easy:   { label: 'EASY',   enemyCreditMult: 0.60, playerCreditMult: 1.25, aggressionMult: 0.75, thinkInterval: 1.8, waveCap: 8,  trainCreditFloor: 1.25, siegeMult: 0.0 },
+  normal: { label: 'NORMAL', enemyCreditMult: 1.0,  playerCreditMult: 1.1,  aggressionMult: 1.0,  thinkInterval: 1.3,  waveCap: 13, trainCreditFloor: 0.95, siegeMult: 0.0 },
+  hard:   { label: 'HARD',   enemyCreditMult: 1.08, playerCreditMult: 1.05, aggressionMult: 1.08, thinkInterval: 1.2,  waveCap: 14, trainCreditFloor: 0.92, siegeMult: 1.0 },
 };
 
 export const DIFFICULTY_ORDER: Difficulty[] = ['easy', 'normal', 'hard'];

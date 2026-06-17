@@ -23,21 +23,45 @@ The bar for "real": a playable mission where the full loop — harvest → build
 fight → win/lose — works without breaking.
 
 ## Status (the cross-session pointer — read this first, update at session end)
-- **▶ Current phase:** COMPLETE — full 4-mission RTS with rally points, difficulty levels,
-  smart unit AI/stances/commands, **armor/damage-type rock-paper-scissors combat, anti-air
-  discipline, an expanded unit roster (Rocket/Scout/Artillery), Tech upgrades, a procedural
-  audio layer, combat juice (damage numbers / hit-flash / infantry death poof), control
-  groups + a clip-through repath fix, a (skirmish-ready) AI-personality system,
-  objective/win-condition types (destroyAll/destroyTarget/survive/defend) with a new survive
-  mission, quick save/load, a Rocket Turret, building repair, Atreides-vs-Harkonnen faction
-  asymmetry (houses), a title/main-menu + in-play pause screen, and a skirmish mode (free symmetric
-  match vs a pickable AI personality)**, all on a re-verified difficulty ladder.
-  Latest `npm run sim` (30-40 runs/cell, after the smart-harvester rebalance): **Easy ~100/100/100,
-  Normal ~60/46/40, Hard ~75/52/22** (M1/M2/M3 player win%, averaged over 2 noisy confirmation
-  runs) — a clean difficulty *ramp* (M1 easiest → M3 the hard finale), no 0%/100% cells, passive
-  loses 100%. The sim bot is a LOWER BOUND, especially on M3, since it never micros Artillery
-  (which the M3 brief advises) — a human does better. The surface is noisy; read at ≥30 runs.
-- **Last done (newest):** **M25 — Skirmish mode.** A non-campaign custom battle launched from the
+- **▶ Current phase:** STRATEGIC-DEPTH ENGAGEMENT, **Phase 1 (AI tactical overhaul) COMPLETE + committed**;
+  Phase 2 (deeper upgrade tree) NEXT. The enemy AI was rewritten from "mass a blob and a-move it at the
+  nearest player building" into a **deterministic tactical state machine** (massing → assault, continuously
+  reinforced) with **threat-aware smart targeting** (focus economy/production, avoid the turret kill-zone
+  when weak), **role-based control** (scouts harass economy, rockets bias armour, wounded units retreat),
+  **flank approach** + **focus-fire**, a **seeded PRNG** for unpredictability, and **Artillery siege** that
+  dismantles the player's turret wall from standoff. This **fixed the documented inverted-aggression bug**
+  (the AI no longer suicides into turrets) and made the game **much harder** — the AI now BEATS the turtle
+  sim-bot in skirmish (the inverse of the old state). The campaign was re-tuned around **Artillery as the
+  difficulty ramp lever** (`siegeMult` per difficulty: Easy 0 → Normal 0 → Hard 1.0). Latest `npm run sim`
+  (30 runs/cell, 2 confirmation sweeps): a **clean monotonic ramp by player LOSS%** — Easy ~25% / Normal
+  ~51% / Hard ~78% (M1-M3 destroyAll), **no campaign 0%/100% cells**, no <90s stomps, passive loses 100%,
+  M4-survive 100/~50/~55. **The bot is now an even stronger LOWER BOUND** — it cannot counter the AI's siege
+  (a human rushes the fragile Artillery / brings their own), so the bot draws/loses far more than a human
+  would; treat normal/hard ~0% bot-win destroyAll as "humanly winnable, bot-can't." Determinism preserved
+  (lockstep nettest PASS, save/load resumes the AI bit-identically incl PRNG; `SAVE_VERSION` 2).
+- **Last done (newest):** **M26 — Enemy AI tactical overhaul (strategic-depth Phase 1).** All in
+  `src/world/ai.ts` (+ `defs.ts` `siegeMult`/`siegeTarget`, `game.ts` `SAVE_VERSION` 2 + `AISnapshot` type,
+  `protocol.ts` `AiSnapshot` mirror). New serialized state (`phase`, `phaseUntil`, `rallyX/Y`, `rng`,
+  `lastTargetId`); a mulberry32 PRNG seeded from difficulty+personality+cap (the ONLY entropy, fully
+  serialized → save/load reproducible). `commandArmy()` replaced with: a role layer every tick (artillery
+  holdground/standoff, harassers poke economy, wounded retreat at <0.28 HP) + a massing↔assault FSM with an
+  achievable `commitThreshold` (0.55×cap, NOT a runaway wave size — that pinning caused 540s draws) and a
+  continuously-reinforced assault (feed fresh units to the front; disengage at ≤3). `acquireSmartTarget`
+  scores targets by value (yard/refinery/factory high, turrets low) minus army-relative threat (a big army
+  commits to the core, a small one avoids the kill-zone); `flankWaypoint` (seeded side) approaches off-axis;
+  Artillery focuses the player's turrets (`nearestPlayerDefense`) — the turtle-breaker. **AI now fields
+  Artillery** (reversing the old "Artillery is player-only" stance — it works now because the AI has the
+  standoff/kite micro). **The balance journey (~12 sim passes, the documented chaos):** the fix swung the
+  AI from suicidal→over-cautious (mass draws) →over-strong (player loses Easy) before landing on
+  **Artillery-as-the-difficulty-lever**: no siege = can't break a turtle (draws), full siege = breaks it
+  (loss), so reserving siege for Hard gives the clean ramp. The sim `PlayerBot` was left as the documented
+  turret-turtle oracle (bot Artillery was tried and reverted — it doesn't help the bot, which loses the army
+  fight first). Verified: clean `build`; **2× 30-run sim** (stable ramp above, no degenerate campaign cells);
+  **`npm run nettest` PASS** (lockstep determinism unaffected — the AI doesn't run in MP); **save/load
+  determinism PASS** (headless: AI resumes bit-identically over 120 ticks incl PRNG; in-browser: `quickSave`/
+  `quickLoad` round-trip restores phase/rng/credits, `SAVE_VERSION` 2); live in-browser — AI cycles
+  massing→assault and razes a passive base, **zero console errors**. **Committed + pushed to origin/main.**
+- **Prior:** **M25 — Skirmish mode.** A non-campaign custom battle launched from the
   title's new **SKIRMISH** button. A `'skirmish'` setup overlay offers three pickers — **House /
   Difficulty / Enemy AI personality** (the 5 `ai.ts` archetypes, now ordered by `PERSONALITY_ORDER` +
   a cosmetic per-archetype `blurb`) — plus Begin/Back. A skirmish is a runtime `MissionConfig`
@@ -417,6 +441,32 @@ fight → win/lose — works without breaking.
   while vehicle HP/speed are baked per-unit in `applyUpgradeStats()` (always derived from the
   base def × current mult, so re-applying on purchase never compounds). Hosted at the Radar
   (`unlocksUpgrades`) to avoid adding a new building + prereq chain to the campaigns.
+- **Enemy AI is a deterministic tactical FSM over the EXISTING command substrate (M26).** The brain
+  (`ai.ts commandArmy()`) is a `massing ↔ assault` state machine + an always-on role layer; it issues
+  ONLY the existing `World` commands (`commandAttackMove`/`commandAttack`/`commandMove`/`setStance`), so
+  it reuses the unit-level autonomy (attack-move engagement, the min-range Artillery kite, target
+  re-acquisition, guard leashes) rather than adding combat code. Key design rules, each burned in by the
+  rebalance: (1) **Commit on an achievable threshold** (`0.55×waveCap`), never a runaway wave counter —
+  pinning the commit size to a growing `waveSize` left the AI unable to re-commit after losses → 540s
+  draws. (2) **Sustain + reinforce** an assault (feed fresh units to the front, disengage only at ≤3) —
+  retreat-the-whole-army-and-re-mass just lets a turtle rebuild → draw. (3) **Threat-aware targeting is
+  army-relative** (`acquireSmartTarget`): a small force avoids the turret kill-zone (the old
+  inverted-aggression suicide), a big force commits to the high-value core anyway, else it nibbles
+  rebuildable periphery forever. (4) **Artillery is the turtle-breaker** and focuses the player's turrets
+  from standoff (`nearestPlayerDefense`) — without siege the AI canNOT crack a dug-in base (draws), with
+  it the base falls (decisive). (5) **Unpredictability comes from a seeded `mulberry32` PRNG** whose 32-bit
+  state is serialized — the ONLY entropy in the AI; called only at fixed once-per-tick decision points
+  (phase dwell, flank side) so save/load resumes the exact stream. The AI does NOT run in multiplayer
+  (`advanceTick` steps `world.update` only; MP v1 is human-vs-human), so the new state is a **save/load**
+  concern only — no protocol change; `SAVE_VERSION` bumped to 2.
+- **Artillery siege (`siegeMult`) is the difficulty ramp lever (M26).** Because cracking a turtle is
+  binary (siege breaks it, no-siege stalemates), the AI's Artillery count scales by difficulty —
+  `DIFFICULTY.siegeMult` × the personality's `siegeTarget` (Easy 0 → Normal 0 → Hard ≈2). Easy/Normal
+  pressure the player by army mass (player can hold/win with good defence); Hard brings siege that breaks
+  the wall. This reverses the old "Artillery is player-only / never give the AI Artillery" decision: the
+  AI now wields it well because it has the standoff role + the engine's kite micro. The naive sim bot is
+  therefore an even stronger LOWER BOUND (it cannot counter siege; a human rushes the fragile Artillery),
+  so normal/hard ~0% bot-win on destroyAll is "humanly winnable, bot-can't" — do not chase it.
 
 ## Build methodology — agent & orchestrator direction (how this project is built)
 Operate as a **lead orchestrator**: per task run *assess complexity → plan → execute (direct or
@@ -536,6 +586,13 @@ session log, newest on top).
   shared `Game.begin()` (refactored from `load()`), `missionIndex=-1`, `inSkirmish` flag; win/lose →
   title. Save/load works (additive optional `SaveData.skirmish`, no version bump). `PERSONALITY_ORDER`
   + `blurb` added to `ai.ts`. Campaign ladder unchanged; skirmish band has no broken cells. ✅
+- [x] **M26 — Enemy AI tactical overhaul (strategic-depth Phase 1).** Rewrote `commandArmy()` into a
+  deterministic `massing↔assault` FSM + role layer: smart threat-aware targeting (`acquireSmartTarget`),
+  continuous reinforcement, flank approach (`flankWaypoint`), focus-fire, wounded-retreat, scout harassment,
+  and **Artillery siege** that breaks the turtle (focuses turrets from standoff). Seeded mulberry32 PRNG for
+  unpredictability (serialized; `SAVE_VERSION` 2). `siegeMult` difficulty lever (Easy 0/Normal 0/Hard ≈2).
+  Fixes inverted-aggression; "noticeably harder"; clean loss-ramp Easy~25/Normal~51/Hard~78%, no degenerate
+  campaign cells. nettest + save/load determinism verified. ✅ (Phase 2 = the tiered upgrade tree, next.)
 
 ## Open tasks / current priorities
 
@@ -592,6 +649,23 @@ external plan's week-estimates are ~2–4× high for this AI-assisted workflow *
 which is the unpredictable wildcard.
 
 ## Known issues / risks
+- **⚠ M26 UPDATED several lessons below — read this first.** The enemy-AI overhaul (M26) changed
+  the balance landscape and REVERSED two prior "don't" decisions:
+  • **Inverted-aggression is FIXED** — the AI no longer a-moves its blob into the turret kill-zone;
+    it threat-scores targets, flanks, retreats wounded, and sieges with Artillery. So the old
+    "raising aggression makes a mission EASIER" effect is largely gone; aggression now buys smarter
+    pressure. The AI BEATS the turtle sim-bot in skirmish (the inverse of the M25 state).
+  • **The AI now FIELDS Artillery** (reversing "Artillery is player-only / never give the AI it").
+    It works because the AI commands it at standoff (role layer + the engine's min-range kite) and
+    focuses the player's turrets. Artillery count is the difficulty lever (`DIFFICULTY.siegeMult`).
+  • **The sim `PlayerBot` was tried WITH Artillery and reverted** — it still doesn't help (the bot
+    loses the army fight before siege matters), so the old "keep the bot tanks+rockets+upgrades"
+    lesson STANDS. But the bot is now an even weaker LOWER BOUND vs the siege AI: it cannot counter
+    Artillery, so normal/hard ~0% bot-win on destroyAll is "humanly winnable, bot-can't" — NOT a
+    target to fix by nerfing the AI.
+  • **Draws are the new failure mode to watch** (not just <90s stomps): two competent defenders with
+    rebuilds stalemate to the 540s cap unless someone sieges. Read sim cells by DURATION + draw% too,
+    not just win/loss. The clean ramp came from reserving siege for Hard.
 - **Pathfinding** (M5) is the hardest piece; grid A* with many units can get expensive — defer
   until needed, then budget for it.
 - **Performance with many units/projectiles** — Canvas 2D is fine for hundreds of sprites but
@@ -667,6 +741,26 @@ which is the unpredictable wildcard.
   Revisit if/when bumping Vite intentionally.
 
 ## Session log (terse; newest on top)
+- **2026-06-18** — **M26: Enemy AI tactical overhaul (strategic-depth engagement, Phase 1 of 2).**
+  Goal: deepen AI tactics + make the game noticeably harder. Orchestrated per the methodology — a Workflow
+  Explore fan-out (4 readers mapping upgrades/AI/combat-substrate/plumbing) → a design panel + adversarial
+  review (which caught that the AI does NOT run in MP, so the PRNG concern is save/load-only, no protocol
+  bump) → single-hand implement in `ai.ts` → the chaotic sim rebalance (single-hand, sim-as-oracle, per the
+  documented "balance is sequential, a workflow does NOT help" lesson). Built: serialized tactical state +
+  mulberry32 PRNG; a `massing↔assault` FSM + role layer; `acquireSmartTarget` (value − army-relative threat);
+  `flankWaypoint`; Artillery siege focusing turrets; `siegeMult` difficulty lever; bumped `SAVE_VERSION` 2.
+  **The rebalance took ~12 sim passes** and traced a clear arc: suicidal AI → (cautious fix) mass 540s draws
+  → (decisive fix) over-strong (player loses Easy) → landing on **Artillery-as-difficulty-lever** (reserve
+  siege for Hard) for a clean ramp. Tried + reverted: bot Artillery (doesn't help — bot loses the army fight
+  first), normal-with-siege (compressed normal≈hard), commit-on-runaway-waveSize (caused the draws).
+  **Final ladder (2× 30-run sweeps, stable):** player-LOSS% Easy ~25 / Normal ~51 / Hard ~78 (M1-M3), M4
+  survive 100/~50/~55, no campaign 0%/100% cells, no <90s stomps, passive 100% loss. Skirmish now AI-favored
+  (balanced/rusher/turtle ~95% AI-win, mechanized ~60% contested) — the inverse of M25, expected from a
+  competent AI; not chased (per the documented skirmish stance). Verified: clean `build`; nettest PASS
+  (MP/determinism unaffected — AI doesn't run in MP); save/load determinism PASS (headless bit-identical
+  resume incl PRNG + in-browser `quickSave`/`quickLoad` round-trip, `SAVE_VERSION` 2); live in-browser AI
+  cycles massing→assault and razes a passive base, zero console errors. Files: `world/ai.ts`, `world/defs.ts`,
+  `game/game.ts`, `net/protocol.ts`. (committed + pushed 2026-06-18). **Next: Phase 2 — the tiered upgrade tree.**
 - **2026-06-14** — **M25: Skirmish mode.** Orchestrated per the methodology: a **Workflow Explore
   phase** (4 parallel readers mapping missions/world/tilemap/ai+defs) → a **3-design panel**
   (MVP/feel/robustness — all independently converged on a SYMMETRIC start) → single-hand implement in

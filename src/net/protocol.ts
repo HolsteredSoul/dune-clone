@@ -72,12 +72,19 @@ export interface LobbyOptions {
 }
 
 /** Enemy-AI snapshot shape (mirrors EnemyAI.serialize() / game.ts SaveData.ai). Only present for
- *  a host-authoritative PvAI start; undefined for human-vs-human. */
+ *  a host-authoritative PvAI start; undefined for human-vs-human (v1 MP is PvP, so this is unused
+ *  today — kept as an accurate mirror). Tactical fields are optional, matching AISnapshot. */
 export interface AiSnapshot {
   think: number;
   waveSize: number;
   holdUntil: number;
   attacking: boolean;
+  phase?: string;
+  phaseUntil?: number;
+  rallyX?: number;
+  rallyY?: number;
+  rng?: number;
+  lastTargetId?: number;
 }
 
 // ---- Layer 2: the application message union ----------------------------------------------

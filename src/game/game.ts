@@ -9,6 +9,7 @@ import type { Ui, Overlay, SkirmishSel } from '../render/ui';
 import { World } from '../world/world';
 import type { WorldSnapshot, MissionConfig } from '../world/world';
 import { EnemyAI } from '../world/ai';
+import type { AISnapshot } from '../world/ai';
 import { Building } from '../world/building';
 import { BUILDINGS } from '../world/defs';
 import type { BuildingDef, Difficulty, House, Faction } from '../world/defs';
@@ -23,7 +24,7 @@ import type { Command } from '../net/protocol';
 import type { Transport } from '../net/transport';
 
 const SAVE_KEY = 'dune_save';
-const SAVE_VERSION = 1;
+const SAVE_VERSION = 2; // bumped for the new EnemyAI tactical snapshot fields (older saves rejected)
 const NET_INPUT_DELAY = 5; // lockstep input delay in sim ticks (~83ms at 60Hz) — the jitter buffer
 
 /** A multiplayer match config: the symmetric skirmish start with each side's chosen House. */
@@ -43,7 +44,7 @@ interface SaveData {
   selected: number[];
   groups: [number, number[]][];
   world: WorldSnapshot;
-  ai: { think: number; waveSize: number; holdUntil: number; attacking: boolean };
+  ai: AISnapshot;
 }
 
 export class Game {
