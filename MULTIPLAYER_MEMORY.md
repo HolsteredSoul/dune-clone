@@ -196,7 +196,8 @@ lobby, player options, and synchronized gameplay over a real network.
   `startBuilding('power')` applies (credits 3520→3220, `player.building='power'`), and killing the
   participant returns the host to the title; SP skirmish still steps + renders; zero console errors.
   Lesson: the in-harness preview can't sustain a real-time MP match (rAF paused) — drove `game.step`
-  manually + used headless node clients as the second player. **Not committed yet** (awaiting user).
+  manually + used headless node clients as the second player. **Committed + pushed to origin/main
+  (e1c772e)** alongside the README/CLAUDE/PROJECT_MEMORY doc updates (live link + multiplayer how-to).
 - **2026-06-17 — Phase 1: lobby / options.** New `src/net/lobby.ts` — a self-contained DOM overlay
   (no `index.html` change; inline styles) owning the `Transport` + a host-authoritative lobby state
   machine. Connect screen (name / relay URL / room) → lobby screen (slot list, own House picker, host
