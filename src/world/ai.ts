@@ -283,13 +283,27 @@ export class EnemyAI {
     return this.world.units.filter((u) => u.owner === 'enemy' && u.def.id === id).length;
   }
 
-  /** Sink a large surplus into a single damage upgrade once the Radar is up. Kept deliberately
-   *  light (one upgrade, high threshold) so the AI never snowballs out of the difficulty band. */
+  // Preference order for teching: cheap global/vehicle damage + vehicle armour first, then the
+  // class/tier extras. canPurchaseUpgrade enforces building + prior-upgrade prereqs, so the AI
+  // naturally climbs the tree as it owns the Factory/Helipad and the earlier upgrades.
+  private static readonly UPGRADE_PREF = [
+    'depleted_rounds', 'composite_armor', 'ap_shells', 'small_arms', 'inf_plating',
+    'reactive_plate', 'salvage_logistics', 'targeting', 'fortified_turrets',
+    'recon_optics', 'turbo_drives', 'plasma_warheads',
+  ];
+
+  /** Walk the preference list once the Radar is up and a healthy surplus exists, buying the first
+   *  affordable+unlocked upgrade (one per think tick) — so the AI techs MULTIPLE upgrades over a
+   *  match without ever starving its army. The upgradeThreshold buffer keeps it in the band. */
   private buyUpgrades(): void {
     if (!this.world.ownedTypes('enemy').has('radar')) return;
-    if (this.world.enemy.credits > this.p.upgradeThreshold
-        && this.world.canPurchaseUpgrade('enemy', 'depleted_rounds')) {
-      this.world.purchaseUpgrade('enemy', 'depleted_rounds');
+    // The tree is a difficulty ramp lever: a hard CAP on how many upgrades the AI fields (Easy 0 =
+    // un-teched so the better-funded player out-techs it; Hard = all). A count cap can't be gamed by
+    // hoarding credits the way a threshold can. Still gated by a surplus buffer so it never starves.
+    if (this.world.enemy.upgrades.size >= this.mods.upgradeCap) return;
+    if (this.world.enemy.credits <= this.p.upgradeThreshold) return;
+    for (const id of EnemyAI.UPGRADE_PREF) {
+      if (this.world.canPurchaseUpgrade('enemy', id)) { this.world.purchaseUpgrade('enemy', id); return; }
     }
   }
 

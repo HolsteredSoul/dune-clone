@@ -5,7 +5,7 @@
 import type { World } from '../world/world';
 import type { Camera } from '../core/camera';
 import type { Unit } from '../world/unit';
-import { BUILDINGS, UNITS, UPGRADES, BUILD_MENU_ORDER, UPGRADE_ORDER, STANCE_LABEL, DIFFICULTY, DIFFICULTY_ORDER, HOUSES, HOUSE_ORDER, otherHouse } from '../world/defs';
+import { BUILDINGS, UNITS, UPGRADES, BUILD_MENU_ORDER, UPGRADES_BY_TIER, STANCE_LABEL, DIFFICULTY, DIFFICULTY_ORDER, HOUSES, HOUSE_ORDER, otherHouse } from '../world/defs';
 import type { Stance, Difficulty, House, Faction } from '../world/defs';
 import { PERSONALITIES, PERSONALITY_ORDER } from '../world/ai';
 
@@ -201,12 +201,19 @@ export class Ui {
     const unitIds = UNIT_ICON_ORDER.filter((id) => world.ownedTypes(this.localFaction).has(UNITS[id].builtAt));
     y = this.iconGrid(unitIds, y, (id) => this.unitState(world, id), this.unitRects);
 
-    // Upgrades — appear once the player owns the tech building (Radar Outpost).
+    // Upgrades — appear once the player owns the tech building (Radar). Rendered tier-by-tier;
+    // only nodes whose prerequisite building is owned are shown, so the tree reveals as you tech up.
     this.upgradeRects = [];
     if (world.ownedTypes(this.localFaction).has('radar')) {
       y += 6;
       y = this.section('UPGRADES', y);
-      this.iconGrid(UPGRADE_ORDER, y, (id) => this.upgradeState(world, id), this.upgradeRects);
+      for (const tier of [1, 2, 3]) {
+        const ids = UPGRADES_BY_TIER[tier].filter(
+          (id) => world.ownedTypes(this.localFaction).has(UPGRADES[id].requires));
+        if (ids.length === 0) continue;
+        y = this.section(`TIER ${tier}`, y);
+        y = this.iconGrid(ids, y, (id) => this.upgradeState(world, id), this.upgradeRects);
+      }
     }
   }
 
@@ -296,8 +303,11 @@ export class Ui {
   private upgradeState(world: World, id: string): IconState {
     const def = UPGRADES[id];
     const owned = world.player_(this.localFaction).upgrades.has(id);
+    // Dim a node whose tech prerequisite (building or prior upgrade) isn't met yet — it reads as
+    // locked rather than merely unaffordable.
+    const locked = !owned && !world.upgradePrereqsMet(this.localFaction, id);
     return {
-      label: def.short, cost: def.cost, color: '#39476a',
+      label: def.short, cost: def.cost, color: locked ? '#23283a' : '#39476a',
       enabled: world.canPurchaseUpgrade(this.localFaction, id),
       ready: false, progress: 0, queue: 0, owned,
     };

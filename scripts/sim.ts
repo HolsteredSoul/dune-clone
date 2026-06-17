@@ -35,6 +35,14 @@ const PLAYER_BUILD_ORDER: BuildStep[] = [
   { id: 'turret', min: 3 },
 ];
 
+// Upgrade preference for the (turtle) bot: damage + vehicle armour + a turret-damage boost for its
+// defence, then the rest. canPurchaseUpgrade enforces prereqs so it climbs tiers over a long game.
+const PLAYER_UPGRADE_PREF = [
+  'depleted_rounds', 'composite_armor', 'ap_shells', 'fortified_turrets', 'small_arms',
+  'inf_plating', 'reactive_plate', 'salvage_logistics', 'targeting', 'recon_optics',
+  'turbo_drives', 'plasma_warheads',
+];
+
 class PlayerBot {
   private think = 0.5;
   private interval = 1.4;
@@ -124,11 +132,12 @@ class PlayerBot {
 
   private buyUpgrades(): void {
     if (!this.world.ownedTypes('player').has('radar')) return;
-    const c = this.world.player.credits;
-    if (c > 1200 && this.world.canPurchaseUpgrade('player', 'depleted_rounds')) {
-      this.world.purchaseUpgrade('player', 'depleted_rounds');
-    } else if (c > 1400 && this.world.canPurchaseUpgrade('player', 'composite_armor')) {
-      this.world.purchaseUpgrade('player', 'composite_armor');
+    // High buffer = army-FIRST teching: the bot can't micro a thin army, so (unlike a human) it
+    // must keep its tank/rocket backbone funded and only tech off a genuine surplus, picking up the
+    // few high-value combat upgrades over a long game rather than starving itself dry.
+    if (this.world.player.credits < 1400) return;
+    for (const id of PLAYER_UPGRADE_PREF) {
+      if (this.world.canPurchaseUpgrade('player', id)) { this.world.purchaseUpgrade('player', id); return; }
     }
   }
 

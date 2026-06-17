@@ -23,8 +23,40 @@ The bar for "real": a playable mission where the full loop — harvest → build
 fight → win/lose — works without breaking.
 
 ## Status (the cross-session pointer — read this first, update at session end)
-- **▶ Current phase:** STRATEGIC-DEPTH ENGAGEMENT, **Phase 1 (AI tactical overhaul) COMPLETE + committed**;
-  Phase 2 (deeper upgrade tree) NEXT. The enemy AI was rewritten from "mass a blob and a-move it at the
+- **▶ Current phase:** STRATEGIC-DEPTH ENGAGEMENT — **BOTH PHASES COMPLETE + committed** (Phase 1 = AI
+  tactical overhaul / M26; Phase 2 = tiered upgrade tree / M27). **Phase 2:** the flat 4-upgrade Radar
+  panel became a **12-node, 3-tier, prerequisite-gated research tree** (Weapons / Armor / Economy /
+  Defense) reusing the existing owner-wide-multiplier pipeline (one-time `Set<string>`, no protocol/save
+  shape change). Class-targeted effects (infantry vs vehicle damage/HP, weapon range, turret damage,
+  sight) give a per-unit-type feel with no per-entity state; offense is class-split so it does NOT inflate
+  turrets (dodging the M21 snowball). The tree is a **second difficulty ramp lever** via `DIFFICULTY.
+  upgradeCap` (Easy 0 = AI un-teched → the better-funded player out-techs it; Normal 3; Hard 6) — a hard
+  count cap (not a credit threshold, which the AI games by hoarding). Final ladder (2 confirmation sweeps,
+  stable): player LOSS% **Easy ~20 / Normal ~57 / Hard ~89** (M1-M3), Easy genuinely winnable, **no
+  campaign 0%/100% cells** (Hard tops out ~93%), M4-survive 100/~60/~65, no <90s stomps, passive loses
+  100%. The tree raised the Hard ceiling (the hard AI fields 6 upgrades + siege) while keeping Easy
+  survivable — depth + difficulty, as intended. **The whole strategic-depth engagement is shipped.**
+- **Last done (newest):** **M27 — Tiered upgrade tree (strategic-depth Phase 2).** `defs.ts`: widened
+  `UpgradeEffect` (added `infDamageMult`/`vehDamageMult`/`infHpMult`/`rangeMult`/`sightMult`/
+  `turretDamageMult`); added optional `requiresUpgrade?`/`tier?` to `UpgradeDef`; authored 12 upgrades
+  (kept the 4 legacy ids so old saves + the AI's buy resolve) + `UPGRADES_BY_TIER`. `world.ts`: generalized
+  `applyUpgradeStats` HP to infantry (+ retro-apply `infHpMult`); threaded `shooterKind` through `fire()`
+  for class/turret damage (turrets pass `'building'`); `rangeMult` in `inWeaponRange`; `sightMult` in
+  `acquireTarget`; `upgradePrereqsMet()` + prereq-aware `canPurchaseUpgrade`. `ui.ts`: renders the panel
+  tier-by-tier (only nodes whose building prereq is owned; locked nodes dimmed; hit-test unchanged).
+  `ai.ts` + `sim.ts`: both `buyUpgrades` walk a prereq-aware priority list; the AI gated by
+  `DIFFICULTY.upgradeCap`; the sim `PlayerBot` techs ARMY-FIRST (buffer 1400 — it can't micro a thin army
+  like a human, so over-teching starved it). **The balance journey (~6 sim passes):** the tree first
+  snowballed hard to the AI (Easy → 77-87% loss) because the AI converts upgrades better AND the bot
+  over-teched into a thin army; the fix = `upgradeCap` (AI teching as a difficulty lever) + army-first bot
+  teching, then capping Hard at 6 (full 12 made Hard M2 a degenerate 100%). Verified: clean `build`; 2×
+  30-run sim (stable healthy ramp, no campaign degenerate cells); `npm run nettest` PASS (new apply sites
+  are deterministic; purchaseUpgrade needs no protocol change); live in-browser — tier panel renders with
+  prereq-locked nodes hidden/dimmed, prereq gating correct (T2 `ap_shells` unlocks only after
+  `depleted_rounds`), `inf_plating` raised infantry `infHpMult` 1→1.3, save/load round-trips the new
+  upgrade ids, zero console errors. Files: `world/defs.ts`, `world/world.ts`, `world/ai.ts`,
+  `render/ui.ts`, `scripts/sim.ts`. **Committed + pushed to origin/main.**
+- **Prior:** **M26 — Enemy AI tactical overhaul (strategic-depth Phase 1).** The enemy AI was rewritten from "mass a blob and a-move it at the
   nearest player building" into a **deterministic tactical state machine** (massing → assault, continuously
   reinforced) with **threat-aware smart targeting** (focus economy/production, avoid the turret kill-zone
   when weak), **role-based control** (scouts harass economy, rockets bias armour, wounded units retreat),
@@ -467,6 +499,22 @@ fight → win/lose — works without breaking.
   AI now wields it well because it has the standoff role + the engine's kite micro. The naive sim bot is
   therefore an even stronger LOWER BOUND (it cannot counter siege; a human rushes the fragile Artillery),
   so normal/hard ~0% bot-win on destroyAll is "humanly winnable, bot-can't" — do not chase it.
+- **The upgrade tree is a TIERED, prereq-gated research tree over the SAME owner-wide-multiplier
+  pipeline (M27).** 12 one-time upgrades (`Set<string>`, so save/load + MP are unchanged — new ids just
+  round-trip), gated on building tech (Radar→Factory→Helipad) AND, from Tier 2, a prior upgrade
+  (`UpgradeDef.requiresUpgrade`). Effects are **class-targeted owner-wide scalars** (`infDamageMult`/
+  `vehDamageMult`/`infHpMult`/`rangeMult`/`turretDamageMult`/`sightMult` + the legacy global
+  `damageMult`/`vehicleHpMult`/`vehicleSpeedMult`/`harvestMult`) — a "per-unit-type" feel with NO
+  per-entity state; each applies at exactly one site (`fire` reads `shooterKind` for class/turret damage;
+  `applyUpgradeStats` for HP/speed; `inWeaponRange`/`acquireTarget` for range/sight; unload for harvest).
+  **Offense is class-split on purpose** so a damage buy does NOT also inflate turrets/base-razing (the M21
+  trap); turret damage is its own gated node. **Two balance levers, both burned in by the rebalance:**
+  (1) the AI's teching is a difficulty ramp via `DIFFICULTY.upgradeCap` — a hard COUNT cap (Easy 0 /
+  Normal 3 / Hard 6), NOT a credit threshold (the AI games a threshold by hoarding while its army is
+  capped). (2) The sim `PlayerBot` techs ARMY-FIRST (high buffer): unlike a human it can't micro a thin
+  army, so over-teching starves it — a low buffer made the bot field a tiny army and lose, which is a
+  bot-proxy artifact, not real balance. Net: the tree adds strategic depth + raises the Hard ceiling (the
+  hard AI fields more upgrades + siege) while Easy stays survivable.
 
 ## Build methodology — agent & orchestrator direction (how this project is built)
 Operate as a **lead orchestrator**: per task run *assess complexity → plan → execute (direct or
@@ -593,6 +641,14 @@ session log, newest on top).
   unpredictability (serialized; `SAVE_VERSION` 2). `siegeMult` difficulty lever (Easy 0/Normal 0/Hard ≈2).
   Fixes inverted-aggression; "noticeably harder"; clean loss-ramp Easy~25/Normal~51/Hard~78%, no degenerate
   campaign cells. nettest + save/load determinism verified. ✅ (Phase 2 = the tiered upgrade tree, next.)
+- [x] **M27 — Tiered upgrade tree (strategic-depth Phase 2).** Flat 4-upgrade panel → a 12-node, 3-tier,
+  prereq-gated tree (Weapons/Armor/Economy/Defense) reusing the owner-wide-multiplier pipeline. New
+  class-targeted effects (inf/veh damage+HP, range, turret damage, sight); `requiresUpgrade`/`tier` on
+  `UpgradeDef`; `shooterKind` threaded through `fire()`; tier-by-tier sidebar (prereq-locked nodes
+  hidden/dimmed); prereq-aware `buyUpgrades` for both bots. `DIFFICULTY.upgradeCap` makes AI teching a
+  second difficulty lever (Easy 0/Normal 3/Hard 6). Ladder stayed healthy (Easy ~20/Normal ~57/Hard ~89%
+  loss, no degenerate campaign cells); tree raised the Hard ceiling. build + 2× sim + nettest + live
+  E2E (prereq gating, effects, save/load with new ids) all verified. ✅ **Strategic-depth engagement done.**
 
 ## Open tasks / current priorities
 
@@ -741,6 +797,26 @@ which is the unpredictable wildcard.
   Revisit if/when bumping Vite intentionally.
 
 ## Session log (terse; newest on top)
+- **2026-06-18** — **M27: Tiered upgrade tree (strategic-depth engagement, Phase 2 of 2).** On the
+  Phase-1 (M26) AI baseline. Built per the plan: `defs.ts` data model (widened `UpgradeEffect`,
+  `requiresUpgrade`/`tier`, 12 upgrades keeping the 4 legacy ids, `UPGRADES_BY_TIER`) → `world.ts` apply
+  sites (infantry HP generalize + retro-apply; `shooterKind` threaded through `fire()` for class/turret
+  damage — 2 callers; `rangeMult`/`sightMult`; `upgradePrereqsMet` + prereq-aware `canPurchaseUpgrade`) →
+  `ui.ts` tier rendering (locked nodes dimmed, shown only when the building prereq is owned) → `ai.ts` +
+  `sim.ts` prereq-aware priority-walk `buyUpgrades`. **Balance (~6 sim passes):** the tree first
+  snowballed to the AI (Easy → 77-87% loss) — both because the AI converts upgrades better (focus-fire +
+  siege) AND the sim bot over-teched into a thin army. Fixes: (1) `DIFFICULTY.upgradeCap` (AI upgrade COUNT
+  cap as a difficulty lever — Easy 0 / Normal 3 / Hard 6; a count cap can't be gamed by hoarding credits
+  the way a threshold can); (2) bot techs ARMY-FIRST (buffer 1400, so it keeps its tank backbone); (3)
+  capped Hard at 6 (the full 12 made Hard M2 a degenerate 100%). **Final ladder (2 confirmation sweeps,
+  stable):** player LOSS% Easy ~20 / Normal ~57 / Hard ~89 (M1-M3), Easy winnable, no campaign 0%/100%
+  cells (Hard ≤93%), M4-survive 100/~60/~65, no <90s stomps, passive 100% loss; the tree raised the Hard
+  ceiling (depth + difficulty) while Easy stayed survivable. Verified: clean `build`; 2× 30-run sim;
+  `npm run nettest` PASS (apply sites deterministic, no protocol change for new ids); live in-browser —
+  tier panel renders, prereq gating correct (`ap_shells` unlocks only after `depleted_rounds`; `plasma`
+  hidden without Helipad), `inf_plating` raised `infHpMult` 1→1.3, save/load round-trips new ids, zero
+  console errors. Files: `world/{defs,world,ai}.ts`, `render/ui.ts`, `scripts/sim.ts`. (committed + pushed
+  2026-06-18). **The two-pillar strategic-depth engagement (deeper upgrades + smarter AI) is complete.**
 - **2026-06-18** — **M26: Enemy AI tactical overhaul (strategic-depth engagement, Phase 1 of 2).**
   Goal: deepen AI tactics + make the game noticeably harder. Orchestrated per the methodology — a Workflow
   Explore fan-out (4 readers mapping upgrades/AI/combat-substrate/plumbing) → a design panel + adversarial

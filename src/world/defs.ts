@@ -30,15 +30,16 @@ export interface DifficultyMods {
   waveCap: number;          // max army size the AI masses before each attack
   trainCreditFloor: number; // multiplier on the AI's train credit thresholds
   siegeMult: number;        // scales the AI's Artillery count (the turtle-breaking siege ramp lever)
+  upgradeCap: number;       // max upgrades the AI buys (tree difficulty lever; Easy 0 = un-teched)
 }
 
 export const DIFFICULTY: Record<Difficulty, DifficultyMods> = {
   // The Artillery siege (siegeMult) is the turtle-BREAKER and is reserved for Hard so the ramp is
   // clean: Easy = weak army the player out-holds; Normal = a bigger army that pressures via mass but
   // can't crack a dug-in base (player can hold/win with good defence); Hard = siege that breaks it.
-  easy:   { label: 'EASY',   enemyCreditMult: 0.60, playerCreditMult: 1.25, aggressionMult: 0.75, thinkInterval: 1.8, waveCap: 8,  trainCreditFloor: 1.25, siegeMult: 0.0 },
-  normal: { label: 'NORMAL', enemyCreditMult: 1.0,  playerCreditMult: 1.1,  aggressionMult: 1.0,  thinkInterval: 1.3,  waveCap: 13, trainCreditFloor: 0.95, siegeMult: 0.0 },
-  hard:   { label: 'HARD',   enemyCreditMult: 1.08, playerCreditMult: 1.05, aggressionMult: 1.08, thinkInterval: 1.2,  waveCap: 14, trainCreditFloor: 0.92, siegeMult: 1.0 },
+  easy:   { label: 'EASY',   enemyCreditMult: 0.60, playerCreditMult: 1.25, aggressionMult: 0.75, thinkInterval: 1.8, waveCap: 8,  trainCreditFloor: 1.25, siegeMult: 0.0, upgradeCap: 0 },
+  normal: { label: 'NORMAL', enemyCreditMult: 1.0,  playerCreditMult: 1.1,  aggressionMult: 1.0,  thinkInterval: 1.3,  waveCap: 13, trainCreditFloor: 0.95, siegeMult: 0.0, upgradeCap: 3 },
+  hard:   { label: 'HARD',   enemyCreditMult: 1.08, playerCreditMult: 1.05, aggressionMult: 1.08, thinkInterval: 1.2,  waveCap: 14, trainCreditFloor: 0.92, siegeMult: 1.0, upgradeCap: 6 },
 };
 
 export const DIFFICULTY_ORDER: Difficulty[] = ['easy', 'normal', 'hard'];
@@ -263,7 +264,17 @@ export const UNIT_MENU: Record<ProduceKind, string[]> = {
 // One-time global purchases unlocked by the Radar Outpost (the tech building). Each sets a
 // permanent multiplier on the owning faction, applied instantly to every current and future
 // unit. A pure credit sink that rewards a strong economy with a strictly better army.
-export type UpgradeEffect = 'damageMult' | 'vehicleHpMult' | 'vehicleSpeedMult' | 'harvestMult';
+// Owner-wide multiplier effects. Class-targeted variants (inf*/veh*/turret*) give a "per-unit-type"
+// feel while staying a single faction-wide scalar (no per-entity state). Each applies at exactly one
+// site: damage/class-damage/turret-damage in World.fire; HP/speed baked in applyUpgradeStats; range
+// in inWeaponRange; sight in acquireTarget; harvest at unload.
+export type UpgradeEffect =
+  | 'damageMult'        // global weapon damage (units AND turrets)
+  | 'vehicleHpMult' | 'vehicleSpeedMult' | 'harvestMult'
+  | 'infDamageMult' | 'vehDamageMult'    // class-targeted weapon damage (NOT turrets — dodges the M21 snowball)
+  | 'infHpMult'                          // class-targeted HP (vehicleHpMult already covers vehicles)
+  | 'rangeMult' | 'sightMult'            // unit weapon range / sight radius
+  | 'turretDamageMult';                  // defensive-structure damage only (separately priced, gated)
 
 export interface UpgradeDef {
   id: string;
@@ -271,34 +282,49 @@ export interface UpgradeDef {
   short: string;          // compact label for the sidebar icon
   cost: number;
   requires: string;       // building id that must be owned to purchase
+  requiresUpgrade?: string[]; // upgrade ids that must ALL be owned first (the tech-tree chain)
+  tier?: number;          // 1|2|3 — UI grouping + sort (cosmetic)
   effect: UpgradeEffect;
   value: number;          // the multiplier this upgrade grants
   desc: string;
 }
 
+// A tiered, prerequisite-gated research tree. One-time owner-wide purchases (Set<string>) so save/
+// load + MP are unchanged. The four legacy ids (depleted_rounds / composite_armor / turbo_drives /
+// salvage_logistics) are PRESERVED so old saves and the AI's existing buy still resolve. Tiers gate
+// on building tech (Radar -> War Factory -> Helipad) AND, from T2, on a prior upgrade — so depth
+// rewards a sustained economy. Values are deliberately conservative; offense is class-split so it
+// doesn't also inflate turrets/base-razing (the burned-in M21 power-asymmetry trap).
 export const UPGRADES: Record<string, UpgradeDef> = {
-  depleted_rounds: {
-    id: 'depleted_rounds', name: 'Depleted Rounds', short: 'DMG +15%', cost: 600,
-    requires: 'radar', effect: 'damageMult', value: 1.15,
-    desc: '+15% weapon damage for all units.',
-  },
-  composite_armor: {
-    id: 'composite_armor', name: 'Composite Armor', short: 'VEH HP +25%', cost: 700,
-    requires: 'radar', effect: 'vehicleHpMult', value: 1.25,
-    desc: '+25% HP for all vehicles.',
-  },
-  turbo_drives: {
-    id: 'turbo_drives', name: 'Turbo Drives', short: 'VEH SPD +15%', cost: 450,
-    requires: 'radar', effect: 'vehicleSpeedMult', value: 1.15,
-    desc: '+15% movement speed for all vehicles.',
-  },
-  salvage_logistics: {
-    id: 'salvage_logistics', name: 'Salvage Logistics', short: 'HARVEST +25%', cost: 500,
-    requires: 'radar', effect: 'harvestMult', value: 1.25,
-    desc: '+25% spice mined per trip.',
-  },
+  // ---- Tier 1 — Radar foundations ----
+  depleted_rounds:   { id: 'depleted_rounds',   name: 'Depleted Rounds',    short: 'DMG +12%',     cost: 500, requires: 'radar', tier: 1, effect: 'damageMult',      value: 1.12, desc: '+12% weapon damage for ALL units and turrets.' },
+  small_arms:        { id: 'small_arms',        name: 'Small-Arms Tuning',  short: 'INF DMG +20%', cost: 450, requires: 'radar', tier: 1, effect: 'infDamageMult',   value: 1.20, desc: '+20% infantry weapon damage.' },
+  composite_armor:   { id: 'composite_armor',   name: 'Composite Armor',    short: 'VEH HP +22%',  cost: 600, requires: 'radar', tier: 1, effect: 'vehicleHpMult',   value: 1.22, desc: '+22% HP for all vehicles.' },
+  inf_plating:       { id: 'inf_plating',       name: 'Infantry Plating',   short: 'INF HP +30%',  cost: 500, requires: 'radar', tier: 1, effect: 'infHpMult',       value: 1.30, desc: '+30% HP for all infantry.' },
+  salvage_logistics: { id: 'salvage_logistics', name: 'Salvage Logistics',  short: 'HARVEST +25%', cost: 450, requires: 'radar', tier: 1, effect: 'harvestMult',     value: 1.25, desc: '+25% spice mined per trip.' },
+  turbo_drives:      { id: 'turbo_drives',      name: 'Turbo Drives',       short: 'VEH SPD +15%', cost: 400, requires: 'radar', tier: 1, effect: 'vehicleSpeedMult', value: 1.15, desc: '+15% movement speed for all vehicles.' },
+  // ---- Tier 2 — War Factory (+ a Tier-1 prereq) ----
+  ap_shells:         { id: 'ap_shells',         name: 'AP Shells',          short: 'VEH DMG +20%',    cost: 700, requires: 'factory', requiresUpgrade: ['depleted_rounds'], tier: 2, effect: 'vehDamageMult',    value: 1.20, desc: '+20% vehicle weapon damage. Needs Depleted Rounds.' },
+  reactive_plate:    { id: 'reactive_plate',    name: 'Reactive Plating',   short: 'VEH HP +18%',     cost: 800, requires: 'factory', requiresUpgrade: ['composite_armor'], tier: 2, effect: 'vehicleHpMult',   value: 1.18, desc: 'A further +18% vehicle HP. Needs Composite Armor.' },
+  fortified_turrets: { id: 'fortified_turrets', name: 'Fortified Turrets',  short: 'TURRET DMG +25%', cost: 800, requires: 'factory', requiresUpgrade: ['composite_armor'], tier: 2, effect: 'turretDamageMult', value: 1.25, desc: '+25% damage for your defensive turrets.' },
+  recon_optics:      { id: 'recon_optics',      name: 'Recon Optics',       short: 'SIGHT +25%',      cost: 400, requires: 'factory', tier: 2, effect: 'sightMult',      value: 1.25, desc: '+25% unit sight — spot and engage sooner.' },
+  // ---- Tier 3 — advanced (a Tier-2 prereq) ----
+  targeting:         { id: 'targeting',         name: 'Targeting Computers', short: 'RANGE +15%',  cost: 850,  requires: 'factory', requiresUpgrade: ['ap_shells'], tier: 3, effect: 'rangeMult',     value: 1.15, desc: '+15% weapon range, all units. Needs AP Shells.' },
+  plasma_warheads:   { id: 'plasma_warheads',   name: 'Plasma Warheads',     short: 'VEH DMG +18%', cost: 1100, requires: 'helipad', requiresUpgrade: ['ap_shells'], tier: 3, effect: 'vehDamageMult', value: 1.18, desc: 'A further +18% vehicle damage. Needs AP Shells + Helipad.' },
 };
 
 export const UPGRADE_ORDER = [
-  'depleted_rounds', 'composite_armor', 'turbo_drives', 'salvage_logistics',
+  // tier 1
+  'depleted_rounds', 'small_arms', 'composite_armor', 'inf_plating', 'salvage_logistics', 'turbo_drives',
+  // tier 2
+  'ap_shells', 'reactive_plate', 'fortified_turrets', 'recon_optics',
+  // tier 3
+  'targeting', 'plasma_warheads',
 ];
+
+/** Upgrade ids grouped by tier (precomputed once; the sidebar renders tier-by-tier). */
+export const UPGRADES_BY_TIER: Record<number, string[]> = (() => {
+  const m: Record<number, string[]> = { 1: [], 2: [], 3: [] };
+  for (const id of UPGRADE_ORDER) m[UPGRADES[id].tier ?? 1].push(id);
+  return m;
+})();

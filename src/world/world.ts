@@ -16,7 +16,7 @@ import { Projectile } from './projectile';
 import { Player } from './player';
 import { Fog } from './fog';
 import { BUILDINGS, UNITS, DIFFICULTY, UPGRADES, HOUSES, otherHouse, damageMultiplier } from './defs';
-import type { BuildingDef, Faction, Stance, Difficulty, ArmorClass, WeaponDef, House } from './defs';
+import type { BuildingDef, Faction, Stance, Difficulty, ArmorClass, WeaponDef, House, ProduceKind } from './defs';
 import { findPath, nearestOpen } from '../core/astar';
 import type { TileXY } from '../core/astar';
 import type { BuildItem } from './player';
@@ -389,8 +389,9 @@ export class World {
   private applyUpgradeStats(u: Unit): void {
     const p = this.player_(u.owner);
     const frac = u.maxHp > 0 ? u.hp / u.maxHp : 1;
-    // House HP bonus applies to ALL units; the vehicle-HP upgrade stacks on vehicles only.
-    const upgradeHp = u.def.kind === 'vehicle' ? p.upgradeMult('vehicleHpMult') : 1;
+    // House HP bonus applies to ALL units; the HP upgrade is class-targeted (vehicles vs infantry).
+    const upgradeHp = u.def.kind === 'vehicle' ? p.upgradeMult('vehicleHpMult')
+                    : u.def.kind === 'infantry' ? p.upgradeMult('infHpMult') : 1;
     u.maxHp = u.def.maxHp * upgradeHp * HOUSES[p.house].hpMult;
     u.hp = u.maxHp * frac;
     if (u.def.kind === 'vehicle') u.speedMult = p.upgradeMult('vehicleSpeedMult');
@@ -398,13 +399,23 @@ export class World {
 
   // ---- upgrades ----------------------------------------------------------------------------
 
+  /** Building tech + prior-upgrade prerequisites for `id` (ignores cost/already-owned). */
+  upgradePrereqsMet(faction: Faction, id: string): boolean {
+    const def = UPGRADES[id];
+    if (!def) return false;
+    if (!this.ownedTypes(faction).has(def.requires)) return false;
+    if (def.requiresUpgrade) {
+      const owned = this.player_(faction).upgrades;
+      for (const r of def.requiresUpgrade) if (!owned.has(r)) return false;
+    }
+    return true;
+  }
+
   canPurchaseUpgrade(faction: Faction, id: string): boolean {
     const def = UPGRADES[id];
     if (!def) return false;
     const p = this.player_(faction);
-    return !p.upgrades.has(id)
-      && this.ownedTypes(faction).has(def.requires)
-      && p.credits >= def.cost;
+    return !p.upgrades.has(id) && this.upgradePrereqsMet(faction, id) && p.credits >= def.cost;
   }
 
   purchaseUpgrade(faction: Faction, id: string): boolean {
@@ -414,7 +425,7 @@ export class World {
     p.credits -= def.cost;
     p.upgrades.add(id);
     // HP/speed are baked per-unit, so retro-apply to every existing unit of this faction.
-    if (def.effect === 'vehicleHpMult' || def.effect === 'vehicleSpeedMult') {
+    if (def.effect === 'vehicleHpMult' || def.effect === 'vehicleSpeedMult' || def.effect === 'infHpMult') {
       for (const u of this.units) if (u.owner === faction) this.applyUpgradeStats(u);
     }
     return true;
@@ -932,7 +943,7 @@ export class World {
   }
 
   private acquireTarget(u: Unit, sightTiles = u.def.sight): Combatant | null {
-    const range = sightTiles * TILE;
+    const range = sightTiles * this.player_(u.owner).upgradeMult('sightMult') * TILE;
     let best: Combatant | null = null;
     let bestD = range * range;
     const hitsAir = canHitAir(u.def.weapon);
@@ -962,7 +973,7 @@ export class World {
   private inWeaponRange(u: Unit, t: Combatant): boolean {
     const w = u.def.weapon!;
     const d2 = (centerX(t) - u.x) ** 2 + (centerY(t) - u.y) ** 2;
-    const max = w.range + targetRadius(t);
+    const max = w.range * this.player_(u.owner).upgradeMult('rangeMult') + targetRadius(t);
     if (d2 > max * max) return false;
     if (w.minRange && d2 < w.minRange * w.minRange) return false; // too close (artillery)
     return true;
@@ -972,7 +983,7 @@ export class World {
     if (u.cooldown > 0) return;
     const w = u.def.weapon!;
     u.facing = Math.atan2(centerY(t) - u.y, centerX(t) - u.x);
-    this.fire(u.owner, w, u.x, u.y, t);
+    this.fire(u.owner, w, u.x, u.y, t, u.def.kind);
     u.cooldown = w.cooldown;
     u.muzzleFlash = 0.08;
   }
@@ -985,10 +996,15 @@ export class World {
   /** Apply a weapon's hit: armor-scaled damage to the target (+ splash), and a visual tracer.
    *  Damage = base × owner's damage upgrade × DAMAGE_VS_ARMOR[type][target armor]. */
   private fire(owner: Faction, weapon: WeaponDef, fromX: number, fromY: number,
-               target: Combatant): void {
+               target: Combatant, shooterKind: ProduceKind): void {
     const tx = centerX(target), ty = centerY(target);
     const op = this.player_(owner);
-    const base = weapon.damage * op.upgradeMult('damageMult') * HOUSES[op.house].damageMult;
+    // Class-targeted damage upgrade: turrets scale via turretDamageMult, infantry via infDamageMult,
+    // vehicles/aircraft via vehDamageMult. The global damageMult still multiplies everything.
+    const classDmg = shooterKind === 'building' ? op.upgradeMult('turretDamageMult')
+                   : shooterKind === 'infantry' ? op.upgradeMult('infDamageMult')
+                   : op.upgradeMult('vehDamageMult');
+    const base = weapon.damage * op.upgradeMult('damageMult') * classDmg * HOUSES[op.house].damageMult;
     this.damage(target, base * damageMultiplier(weapon.type, armorOf(target)));
     if (weapon.splash) this.splash(owner, weapon, base, tx, ty, target.id);
     this.projectiles.push(new Projectile(owner, weapon, fromX, fromY, tx, ty));
@@ -1045,7 +1061,7 @@ export class World {
       if (b.cooldown > 0) continue;
       const t = this.nearestEnemyInRange(b);
       if (t) {
-        this.fire(b.owner, b.def.weapon, b.centerX, b.centerY, t);
+        this.fire(b.owner, b.def.weapon, b.centerX, b.centerY, t, 'building');
         b.cooldown = b.def.weapon.cooldown;
         b.muzzleFlash = 0.1;
       }
