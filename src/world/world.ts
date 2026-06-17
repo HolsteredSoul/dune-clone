@@ -136,6 +136,10 @@ export class World {
   blocked = new Uint8Array(MAP_W * MAP_H);
   result: GameResult = 'playing';
   time = 0;
+  /** Which faction THIS CLIENT views + controls — the fog source and the render/UI perspective.
+   *  Presentation only: NOT part of the deterministic sim, never serialized, excluded from the
+   *  desync hash. Default 'player' (single-player + multiplayer host); a MP guest sets 'enemy'. */
+  localFaction: Faction = 'player';
   private fogTimer = 0;
   // Most recent player "under attack" hit — drives the audio cue throttle AND the minimap ping.
   alertTime = -99;
@@ -1170,11 +1174,15 @@ export class World {
     }
   }
 
+  /** Recompute fog now from the viewing faction (call after changing localFaction, e.g. a MP
+   *  guest after deserializing the host snapshot, so it doesn't briefly show the host's fog). */
+  recomputeFog(): void { this.refreshFog(); }
+
   private refreshFog(): void {
     if (!this.config.fog) return;
     this.fog.recompute(
-      this.units.filter((u) => u.owner === 'player'),
-      this.buildings.filter((b) => b.owner === 'player'),
+      this.units.filter((u) => u.owner === this.localFaction),
+      this.buildings.filter((b) => b.owner === this.localFaction),
     );
   }
 

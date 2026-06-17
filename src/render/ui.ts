@@ -6,7 +6,7 @@ import type { World } from '../world/world';
 import type { Camera } from '../core/camera';
 import type { Unit } from '../world/unit';
 import { BUILDINGS, UNITS, UPGRADES, BUILD_MENU_ORDER, UPGRADE_ORDER, STANCE_LABEL, DIFFICULTY, DIFFICULTY_ORDER, HOUSES, HOUSE_ORDER, otherHouse } from '../world/defs';
-import type { Stance, Difficulty, House } from '../world/defs';
+import type { Stance, Difficulty, House, Faction } from '../world/defs';
 import { PERSONALITIES, PERSONALITY_ORDER } from '../world/ai';
 
 /** A click on the brief screen's pickers (difficulty or house), or null for "begin". */
@@ -62,9 +62,15 @@ export class Ui {
 
   get sidebarX(): number { return this.screenW - SIDEBAR_W; }
 
+  /** The faction this client controls/views: drives the top bar + sidebar (its credits / build
+   *  menu / queues / upgrades) and the minimap colors. 'player' for single-player + the MP host;
+   *  'enemy' for a MP guest. The default keeps single-player byte-identical. */
+  private localFaction: Faction = 'player';
+
   draw(world: World, cam: Camera, screenW: number, screenH: number, overlay: Overlay,
        selUnits: Unit[], difficulty: Difficulty, muted: boolean, toast: string | null = null,
-       hasSave = false, skirmishSel: SkirmishSel | null = null): void {
+       hasSave = false, skirmishSel: SkirmishSel | null = null, localFaction: Faction = 'player'): void {
+    this.localFaction = localFaction;
     this.screenW = screenW;
     this.screenH = screenH;
     this.drawTopBar(world, muted);
@@ -103,10 +109,10 @@ export class Ui {
     const w = this.screenW - SIDEBAR_W;
     ctx.fillStyle = 'rgba(10,12,16,0.85)';
     ctx.fillRect(0, 0, w, 26);
-    const power = world.powerInfo('player');
+    const power = world.powerInfo(this.localFaction);
     ctx.font = 'bold 14px monospace';
     ctx.fillStyle = '#ffd479';
-    ctx.fillText(`⬡ ${Math.floor(world.player.credits)}`, 12, 18);
+    ctx.fillText(`⬡ ${Math.floor(world.player_(this.localFaction).credits)}`, 12, 18);
     ctx.fillStyle = power.factor < 1 ? '#e0524a' : '#7fd0ff';
     ctx.fillText(`⚡ ${power.produced}/${power.consumed}`, 140, 18);
     if (power.factor < 1) {
@@ -127,7 +133,7 @@ export class Ui {
     ctx.fillStyle = '#9fb6c9';
     ctx.font = 'bold 12px monospace';
     ctx.textAlign = 'right';
-    ctx.fillText(HOUSES[world.player.house].name, w - 38, 18);
+    ctx.fillText(HOUSES[world.player_(this.localFaction).house].name, w - 38, 18);
     ctx.textAlign = 'left';
     this.muteRect = { x: w - 30, y: 4, w: 22, h: 18 };
     this.drawSpeaker(this.muteRect, muted);
@@ -192,12 +198,12 @@ export class Ui {
     y += 6;
     y = this.section('UNITS', y);
     this.unitRects = [];
-    const unitIds = UNIT_ICON_ORDER.filter((id) => world.ownedTypes('player').has(UNITS[id].builtAt));
+    const unitIds = UNIT_ICON_ORDER.filter((id) => world.ownedTypes(this.localFaction).has(UNITS[id].builtAt));
     y = this.iconGrid(unitIds, y, (id) => this.unitState(world, id), this.unitRects);
 
     // Upgrades — appear once the player owns the tech building (Radar Outpost).
     this.upgradeRects = [];
-    if (world.ownedTypes('player').has('radar')) {
+    if (world.ownedTypes(this.localFaction).has('radar')) {
       y += 6;
       y = this.section('UPGRADES', y);
       this.iconGrid(UPGRADE_ORDER, y, (id) => this.upgradeState(world, id), this.upgradeRects);
@@ -265,34 +271,34 @@ export class Ui {
 
   private structState(world: World, id: string): IconState {
     const def = BUILDINGS[id];
-    const p = world.player;
+    const p = world.player_(this.localFaction);
     const building = p.building?.defId === id ? p.building.progress : 0;
     const ready = p.ready === id;
     return {
       label: def.name, cost: def.cost, color: def.color,
-      enabled: ready || world.canStartBuilding('player', id),
+      enabled: ready || world.canStartBuilding(this.localFaction, id),
       ready, progress: building, queue: 0,
     };
   }
 
   private unitState(world: World, id: string): IconState {
     const def = UNITS[id];
-    const q = world.player.unitQueues.get(def.builtAt) ?? [];
+    const q = world.player_(this.localFaction).unitQueues.get(def.builtAt) ?? [];
     const mine = q.filter((it) => it.defId === id);
     const head = q[0]?.defId === id ? q[0].progress : 0;
     return {
       label: def.name, cost: def.cost, color: def.color,
-      enabled: world.canQueueUnit('player', id),
+      enabled: world.canQueueUnit(this.localFaction, id),
       ready: false, progress: head, queue: mine.length,
     };
   }
 
   private upgradeState(world: World, id: string): IconState {
     const def = UPGRADES[id];
-    const owned = world.player.upgrades.has(id);
+    const owned = world.player_(this.localFaction).upgrades.has(id);
     return {
       label: def.short, cost: def.cost, color: '#39476a',
-      enabled: world.canPurchaseUpgrade('player', id),
+      enabled: world.canPurchaseUpgrade(this.localFaction, id),
       ready: false, progress: 0, queue: 0, owned,
     };
   }
@@ -314,13 +320,13 @@ export class Ui {
       }
     }
     for (const b of world.buildings) {
-      if (world.config.fog && b.owner === 'enemy' && !world.fog.explored(b.tx, b.ty)) continue;
-      ctx.fillStyle = b.owner === 'player' ? '#46d46e' : '#e0524a';
+      if (world.config.fog && b.owner !== this.localFaction && !world.fog.explored(b.tx, b.ty)) continue;
+      ctx.fillStyle = b.owner === this.localFaction ? '#46d46e' : '#e0524a';
       ctx.fillRect(x + b.tx * sx, y + b.ty * sy, Math.max(2, b.def.w * sx), Math.max(2, b.def.h * sy));
     }
     for (const u of world.units) {
-      if (world.config.fog && u.owner === 'enemy' && !world.fog.visible(u.tileX, u.tileY)) continue;
-      ctx.fillStyle = u.owner === 'player' ? '#9bffb5' : '#ff8a82';
+      if (world.config.fog && u.owner !== this.localFaction && !world.fog.visible(u.tileX, u.tileY)) continue;
+      ctx.fillStyle = u.owner === this.localFaction ? '#9bffb5' : '#ff8a82';
       ctx.fillRect(x + u.tileX * sx, y + u.tileY * sy, 2, 2);
     }
     // camera viewport
@@ -459,6 +465,7 @@ export class Ui {
     const items: { id: string; label: string; dim: boolean }[] = [
       { id: 'campaign', label: 'CAMPAIGN', dim: false },
       { id: 'skirmish', label: 'SKIRMISH', dim: false },
+      { id: 'multiplayer', label: 'MULTIPLAYER', dim: false },
       { id: 'continue', label: hasSave ? 'CONTINUE' : 'CONTINUE  (no save)', dim: !hasSave },
     ];
     this.menu(items, cx, cy, this.titleRects);

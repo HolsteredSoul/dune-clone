@@ -7,7 +7,7 @@ import type { Building } from '../world/building';
 import type { Unit } from '../world/unit';
 import { Terrain } from '../world/tilemap';
 import { TILE, HIT_FLASH_TIME, POPUP_RISE } from '../world/constants';
-import type { BuildingDef } from '../world/defs';
+import type { BuildingDef, Faction } from '../world/defs';
 
 export interface ViewState {
   selected: Set<number>;
@@ -63,9 +63,14 @@ function fxReady(name: string): HTMLImageElement | null {
 }
 
 export class Renderer {
+  // The faction this client views as "friendly" (green + fog source). 'player' for single-player
+  // and the MP host; 'enemy' for a MP guest. Set per-draw; the default preserves single-player.
+  private localFaction: Faction = 'player';
+
   constructor(private readonly ctx: CanvasRenderingContext2D) {}
 
-  draw(world: World, cam: Camera, view: ViewState): void {
+  draw(world: World, cam: Camera, view: ViewState, localFaction: Faction = 'player'): void {
+    this.localFaction = localFaction;
     const ctx = this.ctx;
     ctx.save();
     ctx.beginPath();
@@ -152,7 +157,7 @@ export class Renderer {
   }
 
   private visibleEntity(world: World, owner: string, cx: number, cy: number): boolean {
-    if (!world.config.fog || owner === 'player') return true;
+    if (!world.config.fog || owner === this.localFaction) return true;
     return world.fog.visible(Math.floor(cx / TILE), Math.floor(cy / TILE));
   }
 
@@ -174,7 +179,7 @@ export class Renderer {
       ctx.fillRect(sx + 3, sy + 3, w - 6, h - 6);
     }
     // owner edge
-    ctx.strokeStyle = b.owner === 'player' ? PLAYER : ENEMY;
+    ctx.strokeStyle = b.owner === this.localFaction ? PLAYER : ENEMY;
     ctx.lineWidth = 2;
     ctx.strokeRect(sx + 1, sy + 1, w - 2, h - 2);
 
@@ -199,7 +204,7 @@ export class Renderer {
     const tagY = sy - tagH - 6;
     ctx.fillStyle = 'rgba(8,10,14,0.72)';
     ctx.fillRect(tagX, tagY, tagW, tagH);
-    ctx.strokeStyle = b.owner === 'player' ? 'rgba(70,212,110,0.55)' : 'rgba(224,82,74,0.55)';
+    ctx.strokeStyle = b.owner === this.localFaction ? 'rgba(70,212,110,0.55)' : 'rgba(224,82,74,0.55)';
     ctx.lineWidth = 1;
     ctx.strokeRect(tagX + 0.5, tagY + 0.5, tagW - 1, tagH - 1);
     ctx.fillStyle = '#e8edf2';
@@ -237,7 +242,7 @@ export class Renderer {
     const sx = u.x - cam.x;
     const sy = u.y - cam.y;
     const r = u.def.radius;
-    const edge = u.owner === 'player' ? PLAYER : ENEMY;
+    const edge = u.owner === this.localFaction ? PLAYER : ENEMY;
 
     if (u.def.flying) { // shadow
       ctx.fillStyle = 'rgba(0,0,0,0.3)';

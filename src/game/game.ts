@@ -11,13 +11,25 @@ import type { WorldSnapshot, MissionConfig } from '../world/world';
 import { EnemyAI } from '../world/ai';
 import { Building } from '../world/building';
 import { BUILDINGS } from '../world/defs';
-import type { BuildingDef, Difficulty, House } from '../world/defs';
-import { TILE, SIDEBAR_W } from '../world/constants';
+import type { BuildingDef, Difficulty, House, Faction } from '../world/defs';
+import { TILE, SIDEBAR_W, SIM_HZ } from '../world/constants';
 import { MISSIONS, makeSkirmishConfig } from './missions';
 import { audio } from '../core/audio';
+import { Lobby } from '../net/lobby';
+import type { MatchSetup } from '../net/lobby';
+import { NetSession } from '../net/session';
+import { applyCommand, hashWorld } from '../net/commands';
+import type { Command } from '../net/protocol';
+import type { Transport } from '../net/transport';
 
 const SAVE_KEY = 'dune_save';
 const SAVE_VERSION = 1;
+const NET_INPUT_DELAY = 5; // lockstep input delay in sim ticks (~83ms at 60Hz) — the jitter buffer
+
+/** A multiplayer match config: the symmetric skirmish start with each side's chosen House. */
+function makeMpConfig(playerHouse: House, enemyHouse: House): MissionConfig {
+  return { ...makeSkirmishConfig('balanced'), playerHouse, enemyHouse };
+}
 
 interface SaveData {
   version: number;
@@ -48,6 +60,11 @@ export class Game {
   private inSkirmish = false;             // true while a skirmish MATCH is active (vs campaign)
   private skirmishConfig: MissionConfig | null = null; // the live skirmish config (for save + rematch)
   private skirmishAi = 'balanced';        // session-persistent enemy AI personality pick
+  private lobby: Lobby | null = null;     // lazy DOM multiplayer lobby (additive; outside the sim)
+  // Multiplayer: which faction THIS client controls/views, and the active lockstep session.
+  // Single-player keeps localFaction='player' and net=null, so every path below is unchanged.
+  private localFaction: Faction = 'player';
+  private net: NetSession | null = null;
 
   private readonly selected = new Set<number>();
   private selectedBuilding: Building | null = null;
@@ -120,13 +137,31 @@ export class Game {
   step(dt: number): void {
     if (this.toastTtl > 0) this.toastTtl -= dt;
     if (this.overlay !== 'none') return;
-    this.cam.update(dt, this.input);
-    this.world.update(dt);
-    this.ai.update(dt);
-    if (this.world.result !== 'playing') {
-      this.overlay = this.world.result; // single won/lost edge (step() early-returns thereafter)
-      audio.play(this.world.result === 'won' ? 'victory' : 'defeat');
+    this.cam.update(dt, this.input); // camera is always local (cosmetic), even while net-stalled
+    if (this.net) {
+      this.net.step(); // lockstep gate: advances 0 or 1 sim ticks via advanceTick() when ready
+    } else {
+      this.world.update(dt);
+      this.ai.update(dt);
+      this.checkResult();
     }
+  }
+
+  /** Advance the shared sim exactly one fixed tick. Driven by the lockstep session in MP (no AI in
+   *  a PvP match — both human sides issue their own commands). */
+  private advanceTick(): void {
+    this.world.update(1 / SIM_HZ);
+    this.checkResult();
+  }
+
+  /** Resolve the won/lost edge into the overlay. `world.result` is player-centric and identical on
+   *  both clients (deterministic); a MP guest (faction 'enemy') sees the flipped outcome. */
+  private checkResult(): void {
+    if (this.world.result === 'playing') return;
+    let outcome: 'won' | 'lost' = this.world.result;
+    if (this.localFaction === 'enemy') outcome = outcome === 'won' ? 'lost' : 'won';
+    this.overlay = outcome; // single edge — step() early-returns thereafter
+    audio.play(outcome === 'won' ? 'victory' : 'defeat');
   }
 
   frame(): void {
@@ -220,6 +255,7 @@ export class Game {
 
   /** Quick-save the full game (sim + AI + camera/selection) to localStorage. Play only. */
   private quickSave(): void {
+    if (this.net) { this.toast('Save is unavailable in multiplayer'); return; }
     if (this.overlay !== 'none') { this.toast('Can only save during play'); return; }
     const data: SaveData = {
       version: SAVE_VERSION,
@@ -240,6 +276,7 @@ export class Game {
 
   /** Restore the game saved by quickSave(), rebuilding the world for the right mission first. */
   private quickLoad(): void {
+    if (this.net) { this.toast('Load is unavailable in multiplayer'); return; }
     let raw: string | null = null;
     try { raw = localStorage.getItem(SAVE_KEY); } catch { /* private mode */ }
     if (!raw) { this.toast('No saved game'); return; }
@@ -300,6 +337,7 @@ export class Game {
       const id = this.ui.hitTestTitle(x, y);
       if (id === 'campaign') this.startCampaign();
       else if (id === 'skirmish') this.overlay = 'skirmish';
+      else if (id === 'multiplayer') this.openMultiplayer();
       else if (id === 'continue' && this.titleHasSave) this.quickLoad(); // dim = truly disabled
       return;
     }
@@ -340,8 +378,76 @@ export class Game {
     this.load(0);
   }
 
-  /** Toggle the in-play pause overlay (sim freezes while any overlay is up). */
+  /** Open the multiplayer lobby (a DOM overlay over the canvas; the title stays underneath). */
+  private openMultiplayer(): void {
+    if (!this.lobby) this.lobby = new Lobby();
+    this.lobby.open(
+      (setup) => this.onMatchStart(setup),
+      () => { /* lobby cancelled/left — it hid itself; the title is still showing */ },
+    );
+  }
+
+  /** Launch a networked match from the synchronized lobby. The HOST builds the canonical world and
+   *  ships its snapshot; the GUEST rebuilds the same world then adopts that snapshot, so both start
+   *  byte-identical and run the deterministic lockstep from there. */
+  private onMatchStart(setup: MatchSetup): void {
+    if (setup.isHost) {
+      this.difficulty = setup.options.difficulty;
+      this.playerHouse = setup.houses.player;
+      this.begin(makeMpConfig(setup.houses.player, setup.houses.enemy));
+      setup.transport.send({
+        t: 'start', snapshot: this.world.serialize(), startTick: 0, inputDelay: NET_INPUT_DELAY,
+        difficulty: this.difficulty, playerHouse: setup.houses.player, enemyHouse: setup.houses.enemy,
+      });
+      this.startNet(setup.transport, 'player');
+    } else {
+      const s = setup.start!;
+      this.difficulty = s.difficulty;
+      this.playerHouse = s.playerHouse; // the world's 'player' faction (the host) — same on both clients
+      this.begin(makeMpConfig(s.playerHouse, s.enemyHouse));
+      this.world.deserialize(s.snapshot); // adopt the host's canonical t=0 state
+      this.startNet(setup.transport, 'enemy');
+    }
+    this.lobby?.handOff(); // hide the lobby DOM but keep the socket (the session now owns it)
+    this.overlay = 'none';
+  }
+
+  /** Attach a lockstep session over the lobby's transport and take control of `faction`. */
+  private startNet(transport: Transport, faction: Faction): void {
+    this.missionIndex = -1;
+    this.inSkirmish = false;
+    this.localFaction = faction;
+    this.world.localFaction = faction;
+    this.world.recomputeFog(); // show MY fog at once (a guest just deserialized the host's fog)
+    this.net = new NetSession(transport, faction, {
+      apply: (env) => applyCommand(this.world, env),
+      advance: () => this.advanceTick(),
+      hash: () => hashWorld(this.world),
+    }, NET_INPUT_DELAY);
+    this.net.onDesync = (tick) => this.toast(`Desync at tick ${tick} — match halted`);
+    this.net.onPeerGone = () => { this.toast('Opponent disconnected'); this.endNetToTitle(); };
+    this.centerOnMyBase();
+  }
+
+  /** Center the camera on the local faction's starting base. */
+  private centerOnMyBase(): void {
+    const home = this.world.buildings.find((b) => b.owner === this.localFaction);
+    if (home) this.cam.centerOn(home.centerX, home.centerY);
+  }
+
+  /** Tear down a net match (detach session, close socket) and return to the title. */
+  private endNetToTitle(): void {
+    this.net?.destroy();
+    this.net = null;
+    this.lobby?.close(); // match over → close the transport
+    this.localFaction = 'player';
+    this.enterTitle();
+  }
+
+  /** Toggle the in-play pause overlay (sim freezes while any overlay is up). Disabled in a net
+   *  match — a local freeze would just stall the lockstep for both players (no shared pause in v1). */
   private togglePause(): void {
+    if (this.net) return;
     if (this.overlay === 'paused') this.overlay = 'none';
     else if (this.overlay === 'none') { this.overlay = 'paused'; audio.play('select'); }
   }
@@ -358,6 +464,9 @@ export class Game {
 
   private advanceOverlay(): void {
     if (this.overlay === 'brief') { this.overlay = 'none'; return; }
+    // A net match has no campaign progression and no MISSIONS index — win or lose returns to the
+    // title (and tears down the session/socket). Must be handled before the missionIndex paths.
+    if (this.net) { this.endNetToTitle(); return; }
     // A skirmish has no campaign progression — win or lose returns to the menu (settings persist
     // so the player can re-open Skirmish and re-run with one click).
     if (this.inSkirmish) { this.enterTitle(); return; }
@@ -367,6 +476,14 @@ export class Game {
     } else if (this.overlay === 'lost') {
       this.load(this.missionIndex);
     }
+  }
+
+  /** Issue a player command. Single-player applies it immediately; multiplayer routes it through
+   *  the lockstep session (scheduled + broadcast, applied identically on every client). Either way
+   *  it is tagged with this client's localFaction — never a hardcoded 'player'. */
+  private emit(cmd: Command): void {
+    if (this.net) this.net.queue(cmd);
+    else applyCommand(this.world, { issuingFaction: this.localFaction, cmd });
   }
 
   private onLeftDown(x: number, y: number): void {
@@ -384,7 +501,7 @@ export class Game {
     if (this.pendingAttackMove) {
       const units = this.selectedUnits();
       if (units.length) {
-        this.world.commandAttackMove(units, this.cam.x + x, this.cam.y + y);
+        this.emit({ kind: 'attackMove', unitIds: units.map((u) => u.id), wx: this.cam.x + x, wy: this.cam.y + y });
         audio.play('move');
       }
       this.pendingAttackMove = false;
@@ -419,17 +536,17 @@ export class Game {
     }
     const units = this.selectedUnits();
     if (units.length > 0) {
-      this.world.commandSmart(units, this.cam.x + x, this.cam.y + y);
+      this.emit({ kind: 'smart', unitIds: units.map((u) => u.id), wx: this.cam.x + x, wy: this.cam.y + y });
       audio.play('move');
       return;
     }
     // No units selected: if a friendly producer building is selected, set its rally.
     const b = this.selectedBuilding;
-    if (b && b.owner === 'player' && b.isProducer) {
+    if (b && b.owner === this.localFaction && b.isProducer) {
       const wx = this.cam.x + x, wy = this.cam.y + y;
       const onSelf = b.coversTile(Math.floor(wx / TILE), Math.floor(wy / TILE));
-      if (onSelf) this.world.clearRally(b);
-      else this.world.setRally(b, wx, wy);
+      if (onSelf) this.emit({ kind: 'clearRally', buildingId: b.id });
+      else this.emit({ kind: 'setRally', buildingId: b.id, wx, wy });
     }
   }
 
@@ -458,21 +575,17 @@ export class Game {
           this.togglePause();
         }
         break;
-      case 'Space': {
-        const home = this.world.buildings.find((b) => b.owner === 'player');
-        if (home) this.cam.centerOn(home.centerX, home.centerY);
-        break;
-      }
+      case 'Space': this.centerOnMyBase(); break;
       case 'KeyA': if (units.length) { this.pendingAttackMove = true; audio.play('select'); } break;
-      case 'KeyS': this.world.commandStop(units); if (units.length) audio.play('move'); break;
-      case 'KeyH': this.world.commandHold(units); if (units.length) audio.play('move'); break;
-      case 'KeyG': this.world.commandGuard(units); if (units.length) audio.play('move'); break;
+      case 'KeyS': if (units.length) { this.emit({ kind: 'stop', unitIds: units.map((u) => u.id) }); audio.play('move'); } break;
+      case 'KeyH': if (units.length) { this.emit({ kind: 'hold', unitIds: units.map((u) => u.id) }); audio.play('move'); } break;
+      case 'KeyG': if (units.length) { this.emit({ kind: 'guard', unitIds: units.map((u) => u.id) }); audio.play('move'); } break;
       case 'KeyR': {
         const b = this.selectedBuilding;
-        if (b && b.owner === 'player') {
-          this.world.toggleRepair(b);
+        if (b && b.owner === this.localFaction) {
+          this.emit({ kind: 'toggleRepair', buildingId: b.id });
           audio.play('select');
-          this.toast(b.repairing ? 'Repairing' : 'Repair off');
+          this.toast(b.repairing ? 'Repairing' : 'Repair off'); // SP: reads post-toggle; MP: optimistic
         }
         break;
       }
@@ -487,31 +600,31 @@ export class Game {
     } else if (action.type === 'minimap') {
       this.cam.centerOn(action.wx, action.wy);
     } else if (action.type === 'unit') {
-      const ok = this.world.canQueueUnit('player', action.id);
-      this.world.queueUnit('player', action.id);
+      const ok = this.world.canQueueUnit(this.localFaction, action.id);
+      this.emit({ kind: 'queueUnit', defId: action.id });
       if (ok) audio.play('build-start');
     } else if (action.type === 'upgrade') {
-      const ok = this.world.canPurchaseUpgrade('player', action.id);
-      this.world.purchaseUpgrade('player', action.id);
+      const ok = this.world.canPurchaseUpgrade(this.localFaction, action.id);
+      this.emit({ kind: 'purchaseUpgrade', id: action.id });
       if (ok) audio.play('upgrade');
     } else if (action.type === 'structure') {
-      if (this.world.player.ready === action.id) {
+      if (this.world.player_(this.localFaction).ready === action.id) {
         this.placing = BUILDINGS[action.id];
         audio.play('select'); // picked a finished structure up to place
-      } else if (this.world.canStartBuilding('player', action.id)) {
-        this.world.startBuilding('player', action.id);
+      } else if (this.world.canStartBuilding(this.localFaction, action.id)) {
+        this.emit({ kind: 'startBuilding', defId: action.id });
         audio.play('build-start');
       }
     } else if (action.type === 'command') {
-      const units = this.selectedUnits();
-      if (action.cmd === 'attackmove') this.pendingAttackMove = units.length > 0;
-      else if (action.cmd === 'stop') this.world.commandStop(units);
-      else if (action.cmd === 'hold') this.world.commandHold(units);
-      else if (action.cmd === 'guard') this.world.commandGuard(units);
-      if (units.length) audio.play('move');
+      const ids = this.selectedUnits().map((u) => u.id);
+      if (action.cmd === 'attackmove') this.pendingAttackMove = ids.length > 0;
+      else if (action.cmd === 'stop' && ids.length) this.emit({ kind: 'stop', unitIds: ids });
+      else if (action.cmd === 'hold' && ids.length) this.emit({ kind: 'hold', unitIds: ids });
+      else if (action.cmd === 'guard' && ids.length) this.emit({ kind: 'guard', unitIds: ids });
+      if (ids.length) audio.play('move');
     } else if (action.type === 'stance') {
-      this.world.setStance(this.selectedUnits(), action.stance);
-      if (this.selectedUnits().length) audio.play('select');
+      const ids = this.selectedUnits().map((u) => u.id);
+      if (ids.length) { this.emit({ kind: 'stance', unitIds: ids, stance: action.stance }); audio.play('select'); }
     }
   }
 
@@ -519,9 +632,9 @@ export class Game {
    *  permanent and non-refundable, so they're ignored. */
   private doUiCancel(action: ReturnType<Ui['hitTest']>): void {
     if (!action) return;
-    if (action.type === 'unit') { this.world.cancelUnit('player', action.id); audio.play('cancel'); }
+    if (action.type === 'unit') { this.emit({ kind: 'cancelUnit', defId: action.id }); audio.play('cancel'); }
     else if (action.type === 'structure') {
-      this.world.cancelStructure('player', action.id);
+      this.emit({ kind: 'cancelStructure', defId: action.id });
       audio.play('cancel');
     }
   }
@@ -529,8 +642,8 @@ export class Game {
   private tryPlace(x: number, y: number): void {
     const def = this.placing!;
     const { tx, ty } = this.ghostTile(def, x, y);
-    if (this.world.canPlace('player', def, tx, ty)) {
-      this.world.placeReady('player', tx, ty);
+    if (this.world.canPlace(this.localFaction, def, tx, ty)) {
+      this.emit({ kind: 'placeReady', tx, ty });
       this.placing = null;
       audio.play('place');
     }
@@ -547,7 +660,7 @@ export class Game {
   private clickSelect(x: number, y: number): void {
     const wx = this.cam.x + x, wy = this.cam.y + y;
     this.selected.clear();
-    const u = this.world.unitAt(wx, wy, 'player');
+    const u = this.world.unitAt(wx, wy, this.localFaction);
     if (u) {
       this.selected.add(u.id);
       this.selectedBuilding = null;
@@ -555,7 +668,7 @@ export class Game {
       return;
     }
     const b = this.world.buildingAtTile(Math.floor(wx / TILE), Math.floor(wy / TILE));
-    this.selectedBuilding = b && b.owner === 'player' ? b : null;
+    this.selectedBuilding = b && b.owner === this.localFaction ? b : null;
     if (this.selectedBuilding) audio.play('select');
   }
 
@@ -563,7 +676,7 @@ export class Game {
     this.selected.clear();
     this.selectedBuilding = null;
     const units = this.world.unitsInRect(
-      this.cam.x + x0, this.cam.y + y0, this.cam.x + x1, this.cam.y + y1, 'player');
+      this.cam.x + x0, this.cam.y + y0, this.cam.x + x1, this.cam.y + y1, this.localFaction);
     for (const u of units) this.selected.add(u.id);
     if (this.selected.size > 0) audio.play('select');
   }
@@ -586,7 +699,7 @@ export class Game {
       const { tx, ty } = this.ghostTile(this.placing, mouse.mouseX, mouse.mouseY);
       placing = {
         def: this.placing, tx, ty,
-        valid: this.world.canPlace('player', this.placing, tx, ty),
+        valid: this.world.canPlace(this.localFaction, this.placing, tx, ty),
       };
     }
     const selUnits = this.selectedUnits();
@@ -599,13 +712,13 @@ export class Game {
         ? { x0: this.dragStart.x, y0: this.dragStart.y, x1: mouse.mouseX, y1: mouse.mouseY }
         : null,
     };
-    this.renderer.draw(this.world, this.cam, view);
+    this.renderer.draw(this.world, this.cam, view, this.localFaction);
     const hasSave = this.overlay === 'title' && this.titleHasSave; // cached on title-entry, no per-frame I/O
     const skirmishSel: SkirmishSel | null = this.overlay === 'skirmish'
       ? { house: this.playerHouse, difficulty: this.difficulty, ai: this.skirmishAi }
       : null;
     this.ui.draw(this.world, this.cam, this.cam.viewW + SIDEBAR_W, this.cam.viewH,
       this.overlay, selUnits, this.difficulty, audio.muted,
-      this.toastTtl > 0 ? this.toastMsg : null, hasSave, skirmishSel);
+      this.toastTtl > 0 ? this.toastMsg : null, hasSave, skirmishSel, this.localFaction);
   }
 }

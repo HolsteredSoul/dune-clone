@@ -2,6 +2,9 @@
 
 Single source of truth. Updated at the end of every session that changes things.
 
+> **Networked multiplayer** (the additive `src/net/` + `server/` layer) has its own source of
+> truth: **`MULTIPLAYER_MEMORY.md`**. This file covers the single-player game; that one covers MP.
+
 ## Goal
 Build a **Dune II / Command & Conquer–style real-time strategy game** that runs in the
 browser. Core experience:

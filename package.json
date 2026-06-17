@@ -7,10 +7,13 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "sim": "esbuild scripts/sim.ts --bundle --platform=node --format=esm --outfile=scripts/sim.mjs && node scripts/sim.mjs"
+    "sim": "esbuild scripts/sim.ts --bundle --platform=node --format=esm --outfile=scripts/sim.mjs && node scripts/sim.mjs",
+    "relay": "esbuild server/relay.ts --bundle --platform=node --format=esm --packages=external --outfile=server/relay.mjs && node server/relay.mjs",
+    "nettest": "esbuild scripts/nettest.ts --bundle --platform=node --format=esm --outfile=scripts/nettest.mjs && node scripts/nettest.mjs"
   },
   "devDependencies": {
     "typescript": "^5.7.2",
-    "vite": "^6.0.7"
+    "vite": "^6.0.7",
+    "ws": "^8.18.0"
   }
 }

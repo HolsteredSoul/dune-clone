@@ -7,6 +7,10 @@ verification checklist. Update it at the end of any session that changes things.
 This file is a thin router only. Do not restate project knowledge here — it lives in
 `PROJECT_MEMORY.md`.
 
+**For the networked multiplayer layer, read `MULTIPLAYER_MEMORY.md`** — its own source of truth
+(goal, decisions, architecture, phase status, verification, risks). Keep it updated when changing
+anything under `src/net/` or `server/`.
+
 ## Stack
 TypeScript + HTML5 Canvas, bundled with Vite. No game engine.
 
@@ -16,6 +20,8 @@ TypeScript + HTML5 Canvas, bundled with Vite. No game engine.
 - `npm run build` — type-check + production build to `dist/`.
 - `npm run sim` — headless balance harness: bot-vs-AI matches across missions × difficulties,
   prints win-rates/durations. Source: `scripts/sim.ts` (bundled via the local esbuild).
+- `npm run relay` — multiplayer relay server (Node `ws`, standalone like `sim.ts`; not bundled
+  into the client). `npm run nettest` — headless 2-client lockstep determinism check (needs relay).
 
 ## Code map (entry points only)
 | Concern | File |
@@ -43,6 +49,10 @@ TypeScript + HTML5 Canvas, bundled with Vite. No game engine.
 | Tunable constants | `src/world/constants.ts` |
 | World rendering | `src/render/renderer.ts` |
 | Sidebar / minimap / HUD / overlays | `src/render/ui.ts` |
+| MP wire protocol / transport | `src/net/{protocol,transport}.ts` |
+| MP lobby (DOM overlay) | `src/net/lobby.ts` |
+| MP lockstep session + command apply | `src/net/{session,commands}.ts` |
+| MP relay server (standalone Node) | `server/relay.ts` (+ `scripts/nettest.ts` cross-check) |
 
 ## Controls
 Left-drag/click select · right-click move/attack/harvest · sidebar builds structures (click,
