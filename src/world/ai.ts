@@ -289,6 +289,7 @@ export class EnemyAI {
   private static readonly UPGRADE_PREF = [
     'depleted_rounds', 'composite_armor', 'ap_shells', 'small_arms', 'inf_plating',
     'reactive_plate', 'salvage_logistics', 'targeting', 'fortified_turrets',
+    'atreides_marksmen', 'harkonnen_bulwark',
     'recon_optics', 'turbo_drives', 'plasma_warheads',
   ];
 

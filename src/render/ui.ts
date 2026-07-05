@@ -215,8 +215,13 @@ export class Ui {
       y += 6;
       y = this.section('UPGRADES', y);
       for (const tier of [1, 2, 3]) {
-        const ids = UPGRADES_BY_TIER[tier].filter(
-          (id) => world.ownedTypes(this.localFaction).has(UPGRADES[id].requires));
+        // Prereq-locked nodes are shown dimmed (see upgradeState); a node exclusive to the OTHER
+        // house is hidden outright — it isn't a "locked" tech step, it doesn't exist for this house.
+        const ids = UPGRADES_BY_TIER[tier].filter((id) => {
+          const def = UPGRADES[id];
+          if (def.house && world.player_(this.localFaction).house !== def.house) return false;
+          return world.ownedTypes(this.localFaction).has(def.requires);
+        });
         if (ids.length === 0) continue;
         y = this.section(`TIER ${tier}`, y);
         y = this.iconGrid(ids, y, (id) => this.upgradeState(world, id), this.upgradeRects);

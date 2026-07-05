@@ -10,8 +10,12 @@ import { EnemyAI, PERSONALITY_ORDER } from '../src/world/ai';
 import { MISSIONS, makeSkirmishConfig } from '../src/game/missions';
 import { BUILDINGS } from '../src/world/defs';
 import { TILE } from '../src/world/constants';
-import type { Difficulty } from '../src/world/defs';
+import type { Difficulty, House } from '../src/world/defs';
 import type { Building } from '../src/world/building';
+
+// Optional matchup override so the mirrored house direction can be sim-checked (e.g.
+// `HOUSE=harkonnen npm run sim`); undefined keeps today's default (Atreides player).
+const HOUSE = process.env.HOUSE as House | undefined;
 
 // ---- Scripted PLAYER bot ------------------------------------------------------------------
 // Mirrors EnemyAI: on a think interval it places ready buildings (spiraling from the yard),
@@ -39,8 +43,9 @@ const PLAYER_BUILD_ORDER: BuildStep[] = [
 // defence, then the rest. canPurchaseUpgrade enforces prereqs so it climbs tiers over a long game.
 const PLAYER_UPGRADE_PREF = [
   'depleted_rounds', 'composite_armor', 'ap_shells', 'fortified_turrets', 'small_arms',
-  'inf_plating', 'reactive_plate', 'salvage_logistics', 'targeting', 'recon_optics',
-  'turbo_drives', 'plasma_warheads',
+  'inf_plating', 'reactive_plate', 'salvage_logistics', 'targeting',
+  'atreides_marksmen', 'harkonnen_bulwark',
+  'recon_optics', 'turbo_drives', 'plasma_warheads',
 ];
 
 class PlayerBot {
@@ -244,7 +249,7 @@ function runMatch(missionIdx: number, difficulty: Difficulty, passive = false): 
 }
 
 function runConfig(config: MissionConfig, difficulty: Difficulty, passive = false): MatchResult {
-  const world = new World(config, difficulty);
+  const world = new World(config, difficulty, HOUSE);
   const ai = new EnemyAI(world, config.aggression, config.aiPersonality);
   const bot: { update(dt: number): void } = passive ? new PassiveBot(world) : new PlayerBot(world);
 

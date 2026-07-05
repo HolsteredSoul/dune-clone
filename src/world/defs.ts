@@ -284,6 +284,7 @@ export interface UpgradeDef {
   requires: string;       // building id that must be owned to purchase
   requiresUpgrade?: string[]; // upgrade ids that must ALL be owned first (the tech-tree chain)
   tier?: number;          // 1|2|3 — UI grouping + sort (cosmetic)
+  house?: House;          // exclusive to that house; absent = both houses can buy it
   effect: UpgradeEffect;
   value: number;          // the multiplier this upgrade grants
   desc: string;
@@ -308,6 +309,9 @@ export const UPGRADES: Record<string, UpgradeDef> = {
   reactive_plate:    { id: 'reactive_plate',    name: 'Reactive Plating',   short: 'VEH HP +18%',     cost: 800, requires: 'factory', requiresUpgrade: ['composite_armor'], tier: 2, effect: 'vehicleHpMult',   value: 1.18, desc: 'A further +18% vehicle HP. Needs Composite Armor.' },
   fortified_turrets: { id: 'fortified_turrets', name: 'Fortified Turrets',  short: 'TURRET DMG +25%', cost: 800, requires: 'factory', requiresUpgrade: ['composite_armor'], tier: 2, effect: 'turretDamageMult', value: 1.25, desc: '+25% damage for your defensive turrets.' },
   recon_optics:      { id: 'recon_optics',      name: 'Recon Optics',       short: 'SIGHT +25%',      cost: 400, requires: 'factory', tier: 2, effect: 'sightMult',      value: 1.25, desc: '+25% unit sight — spot and engage sooner.' },
+  // ---- Tier 2 — house-exclusive doctrines (identity amplifiers; invisible/unpurchasable to the other house) ----
+  atreides_marksmen: { id: 'atreides_marksmen', name: 'Marksman Doctrine',  short: 'RANGE +8%',       cost: 650, requires: 'factory', house: 'atreides',  tier: 2, effect: 'rangeMult',  value: 1.08, desc: '+8% weapon range, all units. House Atreides only.' },
+  harkonnen_bulwark: { id: 'harkonnen_bulwark', name: 'Bulwark Doctrine',   short: 'INF HP +20%',     cost: 650, requires: 'factory', house: 'harkonnen', tier: 2, effect: 'infHpMult',  value: 1.20, desc: '+20% infantry HP. House Harkonnen only.' },
   // ---- Tier 3 — advanced (a Tier-2 prereq) ----
   targeting:         { id: 'targeting',         name: 'Targeting Computers', short: 'RANGE +15%',  cost: 850,  requires: 'factory', requiresUpgrade: ['ap_shells'], tier: 3, effect: 'rangeMult',     value: 1.15, desc: '+15% weapon range, all units. Needs AP Shells.' },
   plasma_warheads:   { id: 'plasma_warheads',   name: 'Plasma Warheads',     short: 'VEH DMG +18%', cost: 1100, requires: 'helipad', requiresUpgrade: ['ap_shells'], tier: 3, effect: 'vehDamageMult', value: 1.18, desc: 'A further +18% vehicle damage. Needs AP Shells + Helipad.' },
@@ -318,6 +322,7 @@ export const UPGRADE_ORDER = [
   'depleted_rounds', 'small_arms', 'composite_armor', 'inf_plating', 'salvage_logistics', 'turbo_drives',
   // tier 2
   'ap_shells', 'reactive_plate', 'fortified_turrets', 'recon_optics',
+  'atreides_marksmen', 'harkonnen_bulwark',
   // tier 3
   'targeting', 'plasma_warheads',
 ];

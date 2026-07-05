@@ -422,6 +422,7 @@ export class World {
     const def = UPGRADES[id];
     if (!def) return false;
     if (!this.ownedTypes(faction).has(def.requires)) return false;
+    if (def.house && this.player_(faction).house !== def.house) return false;
     if (def.requiresUpgrade) {
       const owned = this.player_(faction).upgrades;
       for (const r of def.requiresUpgrade) if (!owned.has(r)) return false;
