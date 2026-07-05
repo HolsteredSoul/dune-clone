@@ -131,6 +131,13 @@ function randomSpiceLayout(): { tx: number; ty: number; r: number }[] {
   return fields;
 }
 
+/** Starting-credits presets for the skirmish setup screen (id/label/value). */
+export const SKIRMISH_CREDITS = [
+  { id: 'low', label: 'Low', value: 2000 },
+  { id: 'standard', label: 'Standard', value: 3200 },
+  { id: 'high', label: 'High', value: 5000 },
+] as const;
+
 /** Build a one-off skirmish MissionConfig: symmetric economy, equal credits (difficulty mods then
  *  tilt it), destroyAll win condition, and the chosen enemy AI archetype. Used by BOTH the
  *  controller (game.ts) and the balance harness (sim.ts) so they test the same thing.
@@ -138,7 +145,7 @@ function randomSpiceLayout(): { tx: number; ty: number; r: number }[] {
  *  randomized symmetric spice layout and a coin-flip corner swap (player SW/NE, enemy the
  *  opposite); `variant = false` reproduces the exact legacy static layout (used by MP, which
  *  needs a fixed map both peers agree on ahead of the lockstep session). */
-export function makeSkirmishConfig(personality = 'balanced', variant = true): MissionConfig {
+export function makeSkirmishConfig(personality = 'balanced', variant = true, credits = 3200): MissionConfig {
   if (!variant) {
     const p = playerCore();
     const e = enemyCore();
@@ -148,8 +155,8 @@ export function makeSkirmishConfig(personality = 'balanced', variant = true): Mi
       fog: true,
       aggression: 1.0,
       aiPersonality: personality,
-      playerCredits: 3200,
-      enemyCredits: 3200, // symmetric; DIFFICULTY credit mults supply the Easy/Normal/Hard tilt
+      playerCredits: credits,
+      enemyCredits: credits, // symmetric; DIFFICULTY credit mults supply the Easy/Normal/Hard tilt
       cameraStart: { tx: 10, ty: 48 },
       spiceFields: SPICE,
       buildings: [...p.b, ...e.b],
@@ -167,8 +174,8 @@ export function makeSkirmishConfig(personality = 'balanced', variant = true): Mi
     fog: true,
     aggression: 1.0,
     aiPersonality: personality,
-    playerCredits: 3200,
-    enemyCredits: 3200, // symmetric; DIFFICULTY credit mults supply the Easy/Normal/Hard tilt
+    playerCredits: credits,
+    enemyCredits: credits, // symmetric; DIFFICULTY credit mults supply the Easy/Normal/Hard tilt
     cameraStart: playerCorner === 'sw' ? { tx: 10, ty: 48 } : { tx: 52, ty: 8 },
     spiceFields: randomSpiceLayout(),
     buildings: [...p.b, ...e.b],

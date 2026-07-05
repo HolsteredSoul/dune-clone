@@ -8,7 +8,7 @@ import type { Renderer, ViewState } from '../render/renderer';
 import type { Ui, Overlay, SkirmishSel } from '../render/ui';
 import { World } from '../world/world';
 import type { WorldSnapshot, MissionConfig } from '../world/world';
-import { EnemyAI } from '../world/ai';
+import { EnemyAI, PERSONALITY_ORDER } from '../world/ai';
 import type { AISnapshot } from '../world/ai';
 import { Building } from '../world/building';
 import { BUILDINGS } from '../world/defs';
@@ -60,7 +60,8 @@ export class Game {
   // Skirmish mode: a non-campaign match built from a runtime config (no missionIndex).
   private inSkirmish = false;             // true while a skirmish MATCH is active (vs campaign)
   private skirmishConfig: MissionConfig | null = null; // the live skirmish config (for save + rematch)
-  private skirmishAi = 'balanced';        // session-persistent enemy AI personality pick
+  private skirmishAi = 'balanced';        // session-persistent enemy AI personality pick ('random' resolved on start)
+  private skirmishCredits = 3200;         // session-persistent starting-credits pick
   private lobby: Lobby | null = null;     // lazy DOM multiplayer lobby (additive; outside the sim)
   // Multiplayer: which faction THIS client controls/views, and the active lockstep session.
   // Single-player keeps localFaction='player' and net=null, so every path below is unchanged.
@@ -125,13 +126,16 @@ export class Game {
     this.overlay = 'brief';
   }
 
-  /** Build + launch a one-off skirmish from the current pickers (House/Difficulty/AI). */
+  /** Build + launch a one-off skirmish from the current pickers (House/Difficulty/AI/Credits). */
   private startSkirmish(): void {
-    const cfg = makeSkirmishConfig(this.skirmishAi);
+    const ai = this.skirmishAi === 'random'
+      ? PERSONALITY_ORDER[Math.floor(Math.random() * PERSONALITY_ORDER.length)]
+      : this.skirmishAi;
+    const cfg = makeSkirmishConfig(ai, true, this.skirmishCredits);
     this.skirmishConfig = cfg;
     this.inSkirmish = true;
     this.missionIndex = -1; // no campaign index
-    this.begin(cfg, this.skirmishAi);
+    this.begin(cfg, ai);
     this.overlay = 'none'; // the setup screen was the brief — drop straight into play
   }
 
@@ -332,7 +336,8 @@ export class Game {
   }
 
   /** Route a left-click while an overlay is showing. Title/pause have discrete buttons; brief
-   *  routes its pickers (null → begin); won/lost advance on any click. */
+   *  routes its pickers (null → begin); won/lost advance on any click (campaign/MP) or route
+   *  through the REMATCH/MENU buttons (skirmish). */
   private onOverlayClick(x: number, y: number): void {
     if (this.overlay === 'title') {
       const id = this.ui.hitTestTitle(x, y);
@@ -348,6 +353,7 @@ export class Game {
       if ('house' in pick) this.playerHouse = pick.house;
       else if ('difficulty' in pick) this.difficulty = pick.difficulty;
       else if ('ai' in pick) this.skirmishAi = pick.ai;
+      else if ('credits' in pick) this.skirmishCredits = pick.credits;
       else if (pick.action === 'begin') this.startSkirmish();
       else if (pick.action === 'back') this.enterTitle();
       return;
@@ -371,7 +377,14 @@ export class Game {
       else this.advanceOverlay();
       return;
     }
-    this.advanceOverlay(); // won / lost
+    // won / lost: a skirmish shows REMATCH/MENU buttons instead of click-anywhere-to-continue.
+    if (this.inSkirmish && (this.overlay === 'won' || this.overlay === 'lost')) {
+      const id = this.ui.hitTestEnd(x, y);
+      if (id === 'rematch') this.startSkirmish();
+      else if (id === 'menu') this.enterTitle();
+      return; // clicks outside the buttons must not fall through
+    }
+    this.advanceOverlay(); // won / lost (campaign / MP)
   }
 
   /** Start the campaign from mission 1 (load() shows its brief; difficulty/house persist). */
@@ -716,10 +729,10 @@ export class Game {
     this.renderer.draw(this.world, this.cam, view, this.localFaction);
     const hasSave = this.overlay === 'title' && this.titleHasSave; // cached on title-entry, no per-frame I/O
     const skirmishSel: SkirmishSel | null = this.overlay === 'skirmish'
-      ? { house: this.playerHouse, difficulty: this.difficulty, ai: this.skirmishAi }
+      ? { house: this.playerHouse, difficulty: this.difficulty, ai: this.skirmishAi, credits: this.skirmishCredits }
       : null;
     this.ui.draw(this.world, this.cam, this.cam.viewW + SIDEBAR_W, this.cam.viewH,
       this.overlay, selUnits, this.difficulty, audio.muted,
-      this.toastTtl > 0 ? this.toastMsg : null, hasSave, skirmishSel, this.localFaction);
+      this.toastTtl > 0 ? this.toastMsg : null, hasSave, skirmishSel, this.localFaction, this.inSkirmish);
   }
 }

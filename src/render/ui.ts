@@ -8,14 +8,16 @@ import type { Unit } from '../world/unit';
 import { BUILDINGS, UNITS, UPGRADES, BUILD_MENU_ORDER, UPGRADES_BY_TIER, STANCE_LABEL, DIFFICULTY, DIFFICULTY_ORDER, HOUSES, HOUSE_ORDER, otherHouse } from '../world/defs';
 import type { Stance, Difficulty, House, Faction } from '../world/defs';
 import { PERSONALITIES, PERSONALITY_ORDER } from '../world/ai';
+import { SKIRMISH_CREDITS } from '../game/missions';
 
 /** A click on the brief screen's pickers (difficulty or house), or null for "begin". */
 export type OverlayPick = { difficulty: Difficulty } | { house: House };
 /** Current skirmish-setup selections, passed to drawSkirmish for active-state highlighting. */
-export interface SkirmishSel { house: House; difficulty: Difficulty; ai: string; }
+export interface SkirmishSel { house: House; difficulty: Difficulty; ai: string; credits: number; }
 /** A click on the skirmish-setup screen. */
 export type SkirmishPick =
-  | { house: House } | { difficulty: Difficulty } | { ai: string } | { action: 'begin' | 'back' };
+  | { house: House } | { difficulty: Difficulty } | { ai: string } | { credits: number }
+  | { action: 'begin' | 'back' };
 import { SIDEBAR_W, TILE, MAP_W, MAP_H } from '../world/constants';
 
 const UNIT_ICON_ORDER = ['infantry', 'rocket', 'scout', 'harvester', 'tank', 'artillery', 'aircraft'];
@@ -52,7 +54,9 @@ export class Ui {
   private titleRects: { id: string; rect: Rect }[] = [];
   private pauseRects: { id: string; rect: Rect }[] = [];
   private aiRects: { id: string; rect: Rect }[] = [];
+  private creditRects: { credits: number; rect: Rect }[] = [];
   private skActionRects: { action: 'begin' | 'back'; rect: Rect }[] = [];
+  private endRects: { action: 'rematch' | 'menu'; rect: Rect }[] = [];
   private minimap: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private muteRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private screenW = 0;
@@ -69,7 +73,8 @@ export class Ui {
 
   draw(world: World, cam: Camera, screenW: number, screenH: number, overlay: Overlay,
        selUnits: Unit[], difficulty: Difficulty, muted: boolean, toast: string | null = null,
-       hasSave = false, skirmishSel: SkirmishSel | null = null, localFaction: Faction = 'player'): void {
+       hasSave = false, skirmishSel: SkirmishSel | null = null, localFaction: Faction = 'player',
+       inSkirmish = false): void {
     this.localFaction = localFaction;
     this.screenW = screenW;
     this.screenH = screenH;
@@ -82,9 +87,11 @@ export class Ui {
     this.titleRects = [];
     this.pauseRects = [];
     this.aiRects = [];
+    this.creditRects = [];
     this.skActionRects = [];
+    this.endRects = [];
     if (overlay === 'none' && selUnits.length > 0) this.drawCommandBar(selUnits);
-    if (overlay !== 'none') this.drawOverlay(world, overlay, difficulty, hasSave, skirmishSel);
+    if (overlay !== 'none') this.drawOverlay(world, overlay, difficulty, hasSave, skirmishSel, inSkirmish);
     if (toast) this.drawToast(toast);
   }
 
@@ -360,7 +367,7 @@ export class Ui {
   }
 
   private drawOverlay(world: World, overlay: Overlay, difficulty: Difficulty, hasSave: boolean,
-                      skirmishSel: SkirmishSel | null): void {
+                      skirmishSel: SkirmishSel | null, inSkirmish = false): void {
     const ctx = this.ctx;
     const w = this.screenW - SIDEBAR_W;
     // The title + skirmish setup are full-screen menus (no game yet); in-play overlays dim only the play area.
@@ -375,7 +382,7 @@ export class Ui {
     if (overlay === 'title') {
       this.drawTitle(cx, hasSave);
     } else if (overlay === 'skirmish') {
-      this.drawSkirmish(cx, skirmishSel ?? { house: 'atreides', difficulty, ai: 'balanced' });
+      this.drawSkirmish(cx, skirmishSel ?? { house: 'atreides', difficulty, ai: 'balanced', credits: 3200 });
     } else if (overlay === 'paused') {
       this.drawPause(cx);
     } else if (overlay === 'brief') {
@@ -447,9 +454,25 @@ export class Ui {
           : kind === 'survive' ? 'Overrun before the clock ran out.'
           : 'Your base was overrun.');
       ctx.fillText(msg, cx, cy);
-      ctx.fillStyle = '#ffd479';
-      ctx.font = 'bold 16px monospace';
-      ctx.fillText(won ? '▶ Click to continue' : '▶ Click to retry', cx, this.screenH / 2 + 70);
+      if (inSkirmish) {
+        // Skirmish has no campaign progression — REMATCH/MENU instead of click-to-continue.
+        const actions: { action: 'rematch' | 'menu'; label: string }[] = [
+          { action: 'rematch', label: '⟳ REMATCH' },
+          { action: 'menu', label: 'MENU' },
+        ];
+        const ebw = 260, ebh = 36, egap = 12;
+        let ey = this.screenH / 2 + 50;
+        for (const it of actions) {
+          const rect = { x: cx - ebw / 2, y: ey, w: ebw, h: ebh };
+          this.endRects.push({ action: it.action, rect });
+          this.menuButton(rect, it.label, false);
+          ey += ebh + egap;
+        }
+      } else {
+        ctx.fillStyle = '#ffd479';
+        ctx.font = 'bold 16px monospace';
+        ctx.fillText(won ? '▶ Click to continue' : '▶ Click to retry', cx, this.screenH / 2 + 70);
+      }
     }
     ctx.textAlign = 'left';
   }
@@ -533,11 +556,11 @@ export class Ui {
     ctx.textAlign = 'left';
   }
 
-  /** Skirmish setup: House + Difficulty + Enemy-AI pickers + Begin/Back. Reuses the brief's
-   *  picker primitives (button() + the same rect arrays) plus a new AI-personality row. */
+  /** Skirmish setup: House + Difficulty + Credits + Enemy-AI pickers + Begin/Back. Reuses the
+   *  brief's picker primitives (button() + the same rect arrays) plus the AI-personality row. */
   private drawSkirmish(cx: number, sel: SkirmishSel): void {
     const ctx = this.ctx;
-    let cy = this.screenH / 2 - 150;
+    let cy = this.screenH / 2 - 190;
     ctx.fillStyle = '#ffd479';
     ctx.font = 'bold 30px monospace';
     ctx.fillText('SKIRMISH', cx, cy);
@@ -578,11 +601,25 @@ export class Ui {
     ctx.textAlign = 'center';
     cy += bh + 24;
 
-    // Enemy AI personality picker.
+    // Starting-credits picker.
+    ctx.fillStyle = '#8a929c'; ctx.font = 'bold 11px monospace';
+    ctx.fillText('STARTING CREDITS', cx, cy); cy += 8;
+    const cbw = 90, cbh = 24, cgap = 10;
+    let cbx = cx - (cbw * SKIRMISH_CREDITS.length + cgap * (SKIRMISH_CREDITS.length - 1)) / 2;
+    for (const c of SKIRMISH_CREDITS) {
+      const rect = { x: cbx, y: cy, w: cbw, h: cbh };
+      this.creditRects.push({ credits: c.value, rect });
+      this.button(rect, c.label, c.value === sel.credits, false);
+      cbx += cbw + cgap;
+    }
+    ctx.textAlign = 'center';
+    cy += cbh + 24;
+
+    // Enemy AI personality picker (+ a 'Random' option that resolves an archetype on begin).
     ctx.fillStyle = '#8a929c'; ctx.font = 'bold 11px monospace';
     ctx.fillText('ENEMY AI', cx, cy); cy += 8;
     const aw = 96, ah = 24, agap = 8;
-    const n = PERSONALITY_ORDER.length;
+    const n = PERSONALITY_ORDER.length + 1;
     let ax = cx - (aw * n + agap * (n - 1)) / 2;
     for (const id of PERSONALITY_ORDER) {
       const rect = { x: ax, y: cy, w: aw, h: ah };
@@ -590,10 +627,15 @@ export class Ui {
       this.button(rect, PERSONALITIES[id].name, id === sel.ai, false);
       ax += aw + agap;
     }
+    {
+      const rect = { x: ax, y: cy, w: aw, h: ah };
+      this.aiRects.push({ id: 'random', rect });
+      this.button(rect, 'Random', sel.ai === 'random', false);
+    }
     ctx.textAlign = 'center';
     cy += ah + 12;
     ctx.fillStyle = '#8fa0ad'; ctx.font = '11px monospace';
-    ctx.fillText(PERSONALITIES[sel.ai]?.blurb ?? '', cx, cy);
+    ctx.fillText(sel.ai === 'random' ? 'Any archetype — revealed in battle.' : PERSONALITIES[sel.ai]?.blurb ?? '', cx, cy);
     cy += 30;
 
     // Begin / Back.
@@ -726,11 +768,18 @@ export class Ui {
     return null;
   }
 
-  /** Hit-test the skirmish-setup screen (House/Difficulty/AI pickers + Begin/Back), or null. */
+  /** Hit-test the skirmish won/lost end screen's REMATCH/MENU buttons, or null. */
+  hitTestEnd(x: number, y: number): 'rematch' | 'menu' | null {
+    for (const b of this.endRects) if (inRect(x, y, b.rect)) return b.action;
+    return null;
+  }
+
+  /** Hit-test the skirmish-setup screen (House/Difficulty/Credits/AI pickers + Begin/Back), or null. */
   hitTestSkirmish(x: number, y: number): SkirmishPick | null {
     for (const a of this.aiRects) if (inRect(x, y, a.rect)) return { ai: a.id };
     for (const h of this.houseRects) if (inRect(x, y, h.rect)) return { house: h.h };
     for (const d of this.diffRects) if (inRect(x, y, d.rect)) return { difficulty: d.d };
+    for (const c of this.creditRects) if (inRect(x, y, c.rect)) return { credits: c.credits };
     for (const s of this.skActionRects) if (inRect(x, y, s.rect)) return { action: s.action };
     return null;
   }
