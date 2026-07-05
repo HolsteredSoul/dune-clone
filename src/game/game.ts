@@ -29,7 +29,7 @@ const NET_INPUT_DELAY = 5; // lockstep input delay in sim ticks (~83ms at 60Hz) 
 
 /** A multiplayer match config: the symmetric skirmish start with each side's chosen House. */
 function makeMpConfig(playerHouse: House, enemyHouse: House): MissionConfig {
-  return { ...makeSkirmishConfig('balanced'), playerHouse, enemyHouse };
+  return { ...makeSkirmishConfig('balanced', false), playerHouse, enemyHouse };
 }
 
 interface SaveData {

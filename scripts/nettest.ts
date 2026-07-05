@@ -21,7 +21,7 @@ const DELAY = 5;
 const TARGET = 400; // ticks (~6.7s of sim at 60Hz)
 
 function makeMpConfig(playerHouse: House, enemyHouse: House): MissionConfig {
-  return { ...makeSkirmishConfig('balanced'), playerHouse, enemyHouse };
+  return { ...makeSkirmishConfig('balanced', false), playerHouse, enemyHouse };
 }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

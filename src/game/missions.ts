@@ -3,6 +3,7 @@
 
 import type { MissionConfig } from '../world/world';
 import type { Faction } from '../world/defs';
+import { MAP_W, MAP_H } from '../world/constants';
 
 type B = { faction: Faction; defId: string; tx: number; ty: number };
 type U = { faction: Faction; defId: string; tx: number; ty: number };
@@ -52,12 +53,114 @@ function enemyCore(): { b: B[]; u: U[] } {
   return { b, u };
 }
 
+// The two corner coordinate tables used by skirmish (variant mode may swap which faction gets
+// which corner). SW mirrors playerCore()'s layout, NE mirrors enemyCore()'s — kept separate from
+// those functions so the campaign missions (which call playerCore()/enemyCore() directly) are
+// untouched by the corner-swap logic.
+function skirmishCore(faction: Faction, corner: 'sw' | 'ne'): { b: B[]; u: U[] } {
+  if (corner === 'sw') {
+    return {
+      b: [
+        { faction, defId: 'yard', tx: 8, ty: 49 },
+        { faction, defId: 'power', tx: 12, ty: 49 },
+        { faction, defId: 'refinery', tx: 8, ty: 46 },
+      ],
+      u: [
+        { faction, defId: 'harvester', tx: 11, ty: 48 },
+        { faction, defId: 'harvester', tx: 10, ty: 47 },
+        { faction, defId: 'infantry', tx: 12, ty: 52 },
+        { faction, defId: 'infantry', tx: 13, ty: 52 },
+      ],
+    };
+  }
+  return {
+    b: [
+      { faction, defId: 'yard', tx: 50, ty: 6 },
+      { faction, defId: 'power', tx: 54, ty: 6 },
+      { faction, defId: 'refinery', tx: 50, ty: 9 },
+    ],
+    u: [
+      { faction, defId: 'harvester', tx: 51, ty: 11 },
+      { faction, defId: 'harvester', tx: 52, ty: 11 },
+      { faction, defId: 'infantry', tx: 47, ty: 11 },
+      { faction, defId: 'infantry', tx: 48, ty: 11 },
+    ],
+  };
+}
+
+// Base anchor points used to keep randomized spice off both starting economies.
+const SW_BASE = { tx: 8, ty: 49 };
+const NE_BASE = { tx: 50, ty: 6 };
+
+function dist(ax: number, ay: number, bx: number, by: number): number {
+  return Math.hypot(ax - bx, ay - by);
+}
+
+// Randomized symmetric spice: one r=4 field dead-center plus two mirrored pairs of r=3 fields
+// (point-reflected through the map center so both corners are equally served). Total mass
+// (sum r^2 = 16 + 9*4 = 52) matches the static SPICE layout above. Rejection-sampled with a
+// bounded retry so fields stay off the map edge, clear of both bases, and clear of each other;
+// falls back to the static layout in the (practically unreachable) case retries are exhausted.
+function randomSpiceLayout(): { tx: number; ty: number; r: number }[] {
+  const MIN = 6, MAX = 57; // 6 <= tx,ty <= 57
+  const MIN_FROM_BASE = 12;
+  const MIN_FROM_FIELD = 9;
+  const cx = MAP_W / 2, cy = MAP_H / 2; // 32, 32 — exact map center
+  const placed: { tx: number; ty: number }[] = [{ tx: cx, ty: cy }]; // center field counts as placed
+  const fields: { tx: number; ty: number; r: number }[] = [{ tx: cx, ty: cy, r: 4 }];
+
+  for (let pair = 0; pair < 2; pair++) {
+    let ok = false;
+    for (let attempt = 0; attempt < 200 && !ok; attempt++) {
+      const tx = Math.floor(MIN + Math.random() * (MAX - MIN + 1));
+      const ty = Math.floor(MIN + Math.random() * (MAX - MIN + 1));
+      const mx = MAP_W - 1 - tx, my = MAP_H - 1 - ty; // point reflection through map center
+      if (dist(tx, ty, SW_BASE.tx, SW_BASE.ty) < MIN_FROM_BASE) continue;
+      if (dist(tx, ty, NE_BASE.tx, NE_BASE.ty) < MIN_FROM_BASE) continue;
+      if (dist(mx, my, SW_BASE.tx, SW_BASE.ty) < MIN_FROM_BASE) continue;
+      if (dist(mx, my, NE_BASE.tx, NE_BASE.ty) < MIN_FROM_BASE) continue;
+      if (placed.some((p) => dist(tx, ty, p.tx, p.ty) < MIN_FROM_FIELD)) continue;
+      if (placed.some((p) => dist(mx, my, p.tx, p.ty) < MIN_FROM_FIELD)) continue;
+      if (dist(tx, ty, mx, my) < MIN_FROM_FIELD) continue;
+      placed.push({ tx, ty }, { tx: mx, ty: my });
+      fields.push({ tx, ty, r: 3 }, { tx: mx, ty: my, r: 3 });
+      ok = true;
+    }
+    if (!ok) return SPICE; // couldn't satisfy constraints — fall back to the static layout
+  }
+  return fields;
+}
+
 /** Build a one-off skirmish MissionConfig: symmetric economy, equal credits (difficulty mods then
- *  tilt it), the shared spice fields, destroyAll win condition, and the chosen enemy AI archetype.
- *  Used by BOTH the controller (game.ts) and the balance harness (sim.ts) so they test the same thing. */
-export function makeSkirmishConfig(personality = 'balanced'): MissionConfig {
-  const p = playerCore();
-  const e = enemyCore();
+ *  tilt it), destroyAll win condition, and the chosen enemy AI archetype. Used by BOTH the
+ *  controller (game.ts) and the balance harness (sim.ts) so they test the same thing.
+ *  When `variant` is true (default, single-player skirmish only) each match gets a freshly
+ *  randomized symmetric spice layout and a coin-flip corner swap (player SW/NE, enemy the
+ *  opposite); `variant = false` reproduces the exact legacy static layout (used by MP, which
+ *  needs a fixed map both peers agree on ahead of the lockstep session). */
+export function makeSkirmishConfig(personality = 'balanced', variant = true): MissionConfig {
+  if (!variant) {
+    const p = playerCore();
+    const e = enemyCore();
+    return {
+      name: 'Skirmish',
+      brief: 'A fair fight from a bare economy — out-build, out-tech, and raze the enemy base.',
+      fog: true,
+      aggression: 1.0,
+      aiPersonality: personality,
+      playerCredits: 3200,
+      enemyCredits: 3200, // symmetric; DIFFICULTY credit mults supply the Easy/Normal/Hard tilt
+      cameraStart: { tx: 10, ty: 48 },
+      spiceFields: SPICE,
+      buildings: [...p.b, ...e.b],
+      units: [...p.u, ...e.u],
+    };
+  }
+
+  const playerCorner: 'sw' | 'ne' = Math.random() < 0.5 ? 'sw' : 'ne';
+  const enemyCorner: 'sw' | 'ne' = playerCorner === 'sw' ? 'ne' : 'sw';
+  const p = skirmishCore('player', playerCorner);
+  const e = skirmishCore('enemy', enemyCorner);
   return {
     name: 'Skirmish',
     brief: 'A fair fight from a bare economy — out-build, out-tech, and raze the enemy base.',
@@ -66,8 +169,8 @@ export function makeSkirmishConfig(personality = 'balanced'): MissionConfig {
     aiPersonality: personality,
     playerCredits: 3200,
     enemyCredits: 3200, // symmetric; DIFFICULTY credit mults supply the Easy/Normal/Hard tilt
-    cameraStart: { tx: 10, ty: 48 },
-    spiceFields: SPICE,
+    cameraStart: playerCorner === 'sw' ? { tx: 10, ty: 48 } : { tx: 52, ty: 8 },
+    spiceFields: randomSpiceLayout(),
     buildings: [...p.b, ...e.b],
     units: [...p.u, ...e.u],
   };

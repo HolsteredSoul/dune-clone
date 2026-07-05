@@ -20,7 +20,7 @@ const ROOM = process.argv[2] ?? 'live';
 const log = (m: string) => console.log('[netguest]', m);
 
 function mpConfig(playerHouse: House, enemyHouse: House): MissionConfig {
-  return { ...makeSkirmishConfig('balanced'), playerHouse, enemyHouse };
+  return { ...makeSkirmishConfig('balanced', false), playerHouse, enemyHouse };
 }
 
 async function main(): Promise<void> {

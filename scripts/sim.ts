@@ -370,9 +370,11 @@ for (const p of PERSONALITY_ORDER) {
 }
 for (const cell of skCells) {
   log(`  running skirmish ${cell.label} (${RUNS} runs)...`);
-  const cfg = makeSkirmishConfig(cell.personality);
   const results: MatchResult[] = [];
-  for (let r = 0; r < RUNS; r++) results.push(runConfig(cfg, cell.diff));
+  for (let r = 0; r < RUNS; r++) {
+    const cfg = makeSkirmishConfig(cell.personality);
+    results.push(runConfig(cfg, cell.diff));
+  }
   const wins = results.filter((r) => r.result === 'won').length;
   const losses = results.filter((r) => r.result === 'lost').length;
   const draws = results.filter((r) => r.result === 'playing').length;
