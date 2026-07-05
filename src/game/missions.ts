@@ -361,4 +361,135 @@ const MISSION_4: MissionConfig = (() => {
   };
 })();
 
-export const MISSIONS: MissionConfig[] = [MISSION_1, MISSION_2, MISSION_3, MISSION_4];
+// Mission 5 introduces the 'destroyTarget' objective: a surgical decapitation strike. The enemy is
+// dug in behind a turret line in a base LARGER than M3's, with their Radar installation tucked at
+// the far corner behind the HQ. Razing the whole base is daunting; slipping past the guns to gut
+// the Radar wins outright. Exactly ONE 'radar' exists so the objective is unambiguous.
+const MISSION_5: MissionConfig = (() => {
+  const p = playerCore(
+    [
+      { faction: 'player', defId: 'power', tx: 12, ty: 51 },
+      { faction: 'player', defId: 'barracks', tx: 12, ty: 46 },
+      { faction: 'player', defId: 'turret', tx: 10, ty: 52 },
+      { faction: 'player', defId: 'turret', tx: 15, ty: 49 },
+    ],
+    [
+      { faction: 'player', defId: 'tank', tx: 14, ty: 53 },
+      { faction: 'player', defId: 'tank', tx: 15, ty: 53 },
+    ],
+  );
+  return {
+    name: 'Mission 5 — Decapitation',
+    brief: 'Intelligence has pinpointed the enemy Radar Outpost — the eye that coordinates their '
+      + 'every wave. Their base is bigger and better-walled than any you have faced, a turret line '
+      + 'guarding the approach with the Radar tucked in behind. You do NOT have to raze it all: '
+      + 'punch a hole, drive Artillery and tanks onto the Radar, and gut it. The base dies blind.',
+    fog: true,
+    aggression: 1.05,
+    objective: { kind: 'destroyTarget', targetDefId: 'radar' },
+    playerCredits: 4200,
+    enemyCredits: 2800,
+    cameraStart: { tx: 10, ty: 48 },
+    spiceFields: SPICE,
+    buildings: [
+      ...p.b,
+      // HQ + economy at the NE corner (as ever), enlarged relative to M3.
+      { faction: 'enemy', defId: 'yard', tx: 50, ty: 6 },
+      { faction: 'enemy', defId: 'power', tx: 54, ty: 6 },
+      { faction: 'enemy', defId: 'power', tx: 54, ty: 9 },
+      { faction: 'enemy', defId: 'refinery', tx: 50, ty: 9 },
+      { faction: 'enemy', defId: 'barracks', tx: 47, ty: 6 },
+      { faction: 'enemy', defId: 'factory', tx: 47, ty: 9 },
+      // The ONE Radar — tucked in the deep NE corner behind the HQ, furthest from the SW approach.
+      { faction: 'enemy', defId: 'radar', tx: 54, ty: 3 },
+      // Turret line guarding the SW-facing approach (the direction the player attacks from).
+      { faction: 'enemy', defId: 'turret', tx: 45, ty: 11 },
+      { faction: 'enemy', defId: 'turret', tx: 47, ty: 12 },
+      { faction: 'enemy', defId: 'turret', tx: 49, ty: 12 },
+      { faction: 'enemy', defId: 'rocketturret', tx: 46, ty: 9 },
+    ],
+    units: [
+      ...p.u,
+      { faction: 'enemy', defId: 'harvester', tx: 51, ty: 14 },
+      { faction: 'enemy', defId: 'harvester', tx: 52, ty: 14 },
+      { faction: 'enemy', defId: 'tank', tx: 45, ty: 13 },
+      { faction: 'enemy', defId: 'tank', tx: 44, ty: 13 },
+      { faction: 'enemy', defId: 'tank', tx: 43, ty: 14 },
+      { faction: 'enemy', defId: 'rocket', tx: 48, ty: 13 },
+      { faction: 'enemy', defId: 'rocket', tx: 46, ty: 14 },
+    ],
+  };
+})();
+
+// Mission 6 introduces the 'defend' objective: hold a named structure until the clock. A pre-placed
+// Radar Outpost sits INSIDE the player's base (the sim PlayerBot defends its own footprint by
+// turtling, so a forward placement would read as impossible). A heavy pre-placed enemy army plus
+// high aggression means the assault lands early — losing the Radar is an instant defeat even if the
+// rest of the base survives. Wiping the enemy early still wins.
+const MISSION_6: MissionConfig = (() => {
+  const p = playerCore(
+    [
+      { faction: 'player', defId: 'power', tx: 12, ty: 51 },
+      { faction: 'player', defId: 'barracks', tx: 12, ty: 46 },
+      // The structure under protection — set at the base's north edge, facing the NE approach,
+      // ringed by turrets so it can weather a hit while the field army is committed elsewhere.
+      // Exposed enough that the assault genuinely threatens it (the difficulty gradient), yet
+      // ringed enough to be holdable on Easy/Normal. The hold timer keeps siege exposure bounded.
+      { faction: 'player', defId: 'radar', tx: 10, ty: 44 },
+      { faction: 'player', defId: 'rocketturret', tx: 13, ty: 44 },
+      { faction: 'player', defId: 'rocketturret', tx: 8, ty: 43 },
+      // Forward rocket turret on the NE approach lane — its long reach picks off the Hard-only
+      // siege Artillery before it can grind the Radar down (barely touches Normal, which fields
+      // no Artillery and already fails to crack the ring in time).
+      { faction: 'player', defId: 'rocketturret', tx: 16, ty: 44 },
+      { faction: 'player', defId: 'turret', tx: 11, ty: 42 },
+      { faction: 'player', defId: 'turret', tx: 10, ty: 52 },
+      { faction: 'player', defId: 'turret', tx: 15, ty: 49 },
+    ],
+    [
+      { faction: 'player', defId: 'tank', tx: 14, ty: 53 },
+      { faction: 'player', defId: 'tank', tx: 15, ty: 53 },
+      { faction: 'player', defId: 'rocket', tx: 13, ty: 53 },
+    ],
+  );
+  return {
+    name: 'Mission 6 — Hold the Line',
+    brief: 'Your forward Radar Outpost is the last relay linking the front to Arrakeen — lose it '
+      + 'and the offensive collapses. The enemy knows it too, and a heavy column is already rolling. '
+      + 'You cannot break them in time: wall up around the Radar, keep Rocket Troopers back for '
+      + 'their armour, and hold for four minutes until reinforcements arrive. Watch the HOLD timer. '
+      + '(If the Radar falls, it is over — even if the rest of your base stands. Wiping them out '
+      + 'early also wins.)',
+    fog: true,
+    aggression: 1.15,
+    objective: { kind: 'defend', targetDefId: 'radar', timeLimit: 260 },
+    playerCredits: 4800,
+    enemyCredits: 1800,
+    cameraStart: { tx: 10, ty: 48 },
+    spiceFields: SPICE,
+    buildings: [
+      ...p.b,
+      { faction: 'enemy', defId: 'yard', tx: 50, ty: 6 },
+      { faction: 'enemy', defId: 'power', tx: 54, ty: 6 },
+      { faction: 'enemy', defId: 'power', tx: 54, ty: 9 },
+      { faction: 'enemy', defId: 'refinery', tx: 50, ty: 9 },
+      { faction: 'enemy', defId: 'barracks', tx: 47, ty: 6 },
+      { faction: 'enemy', defId: 'radar', tx: 44, ty: 6 },
+      { faction: 'enemy', defId: 'factory', tx: 47, ty: 9 },
+      { faction: 'enemy', defId: 'turret', tx: 49, ty: 12 },
+    ],
+    units: [
+      ...p.u,
+      { faction: 'enemy', defId: 'harvester', tx: 51, ty: 14 },
+      { faction: 'enemy', defId: 'harvester', tx: 52, ty: 14 },
+      { faction: 'enemy', defId: 'tank', tx: 45, ty: 12 },
+      { faction: 'enemy', defId: 'tank', tx: 44, ty: 13 },
+      { faction: 'enemy', defId: 'rocket', tx: 48, ty: 12 },
+      { faction: 'enemy', defId: 'infantry', tx: 45, ty: 11 },
+    ],
+  };
+})();
+
+export const MISSIONS: MissionConfig[] = [
+  MISSION_1, MISSION_2, MISSION_3, MISSION_4, MISSION_5, MISSION_6,
+];
