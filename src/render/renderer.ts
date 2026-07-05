@@ -304,6 +304,27 @@ export class Renderer {
     ctx.fillRect(sx - 1, sy - r - 4, 2, 2);
 
     if (u.hp < u.maxHp) this.hpBar(sx - r, sy - r - 5, r * 2, u.hp / u.maxHp);
+
+    // Veterancy chevrons: one small gold 'v' per rank, stacked just above the HP-bar line.
+    // Cosmetic — reads only the derived rank (no sim mutation); fog gating handled by the
+    // visibleEntity early-return at the top of drawUnit.
+    if (u.rank > 0) this.rankChevrons(sx, sy - r - 8, u.rank);
+  }
+
+  /** Draw `rank` small gold chevrons stacked upward from (cx, y) — a veterancy rank badge. */
+  private rankChevrons(cx: number, y: number, rank: number): void {
+    const ctx = this.ctx;
+    ctx.strokeStyle = '#ffd24a';
+    ctx.lineWidth = 1.5;
+    const half = 3, step = 3; // chevron half-width and vertical spacing
+    for (let i = 0; i < rank; i++) {
+      const cy = y - i * step;
+      ctx.beginPath();
+      ctx.moveTo(cx - half, cy - 2);
+      ctx.lineTo(cx, cy);
+      ctx.lineTo(cx + half, cy - 2);
+      ctx.stroke();
+    }
   }
 
   private hpBar(x: number, y: number, w: number, frac: number): void {

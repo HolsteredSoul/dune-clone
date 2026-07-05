@@ -2,7 +2,7 @@
 // Higher-level behaviour (target acquisition, harvesting, firing) is driven by world.ts, which
 // has the cross-entity context (map, enemies, projectiles) a single unit can't see on its own.
 
-import { TILE, ARRIVE_EPS } from './constants';
+import { TILE, ARRIVE_EPS, VET_THRESHOLDS } from './constants';
 import type { UnitDef, Faction, Stance } from './defs';
 import type { TileXY } from '../core/astar';
 
@@ -35,6 +35,7 @@ export class Unit {
   maxHp: number;          // def.maxHp scaled by the owner's HP upgrades (per-unit so it can grow)
   speedMult = 1;          // owner speed-upgrade multiplier, applied in stepToward
   cooldown = 0;
+  kills = 0;              // combat kills credited to this unit (drives veterancy rank; serialized)
 
   order: Order = { kind: 'idle' };
   stance: Stance = 'guard';          // autonomous posture when no explicit order
@@ -72,6 +73,14 @@ export class Unit {
   get alive(): boolean { return this.hp > 0; }
   get tileX(): number { return Math.floor(this.x / TILE); }
   get tileY(): number { return Math.floor(this.y / TILE); }
+
+  /** Veterancy rank derived from kills (0, 1, or 2). Rank is not stored — always derived from
+   *  the serialized `kills`, so old saves (kills=0) and reloads produce the same rank. */
+  get rank(): number {
+    let r = 0;
+    for (const t of VET_THRESHOLDS) if (this.kills >= t) r++;
+    return r;
+  }
 
   distanceTo(x: number, y: number): number {
     return Math.hypot(x - this.x, y - this.y);

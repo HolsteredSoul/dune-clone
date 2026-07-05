@@ -7,7 +7,7 @@ import {
   TILE, MAP_W, MAP_H, HARVEST_RATE, HARVESTER_CAPACITY, HARVEST_LEASH, UNLOAD_RATE,
   SPICE_PER_CREDIT, MIN_POWER_FACTOR, SEPARATION_RADIUS, SEPARATION_FORCE, CORPSE_TTL,
   FOG_REFRESH, GUARD_LEASH, AGGRO_LEASH, HIT_FLASH_TIME, POPUP_TTL,
-  REPAIR_RATE, REPAIR_COST_FACTOR,
+  REPAIR_RATE, REPAIR_COST_FACTOR, VET_DMG_MULT, VET_HP_MULT,
 } from './constants';
 import { TileMap, Terrain } from './tilemap';
 import { Building, reserveBuildingIds } from './building';
@@ -96,6 +96,7 @@ interface UnitSnapshot {
   path: TileXY[]; pathGoal: TileXY | null;
   load: number; harvestPhase: HarvestPhase; spiceTile: TileXY | null;
   facing: number; repathTimer: number;
+  kills?: number;  // veterancy kill count (additive; absent in pre-veterancy saves ⇒ 0)
 }
 export interface WorldSnapshot {
   time: number;
@@ -209,7 +210,7 @@ export class World {
         path: u.path.map((p) => ({ ...p })), pathGoal: u.pathGoal ? { ...u.pathGoal } : null,
         load: u.load, harvestPhase: u.harvestPhase,
         spiceTile: u.spiceTile ? { ...u.spiceTile } : null,
-        facing: u.facing, repathTimer: u.repathTimer,
+        facing: u.facing, repathTimer: u.repathTimer, kills: u.kills,
       })),
     };
   }
@@ -254,6 +255,7 @@ export class World {
     for (const us of s.units) {
       const u = new Unit(UNITS[us.defId], us.owner, us.x, us.y);
       (u as { id: number }).id = us.id;
+      u.kills = us.kills ?? 0; // pre-veterancy saves lack it ⇒ rank 0
       u.hp = us.hp; u.maxHp = us.maxHp; u.speedMult = us.speedMult; u.cooldown = us.cooldown;
       u.order = { ...us.order }; u.stance = us.stance; u.guardX = us.guardX; u.guardY = us.guardY;
       u.path = us.path.map((p) => ({ ...p })); u.pathGoal = us.pathGoal ? { ...us.pathGoal } : null;
@@ -385,16 +387,32 @@ export class World {
   }
 
   /** (Re)derive a unit's upgrade-scaled stats from its owner's purchased upgrades. Always
-   *  computed from the base def (never compounded), so re-applying on a new purchase is safe. */
+   *  computed from the base def (never compounded), so re-applying on a new purchase is safe.
+   *  Veterancy folds in the SAME way: maxHp = base × upgrade × house × vet-rank mult (never
+   *  multiplying the current value), so ranked units survive save/load + upgrade purchases exactly. */
   private applyUpgradeStats(u: Unit): void {
     const p = this.player_(u.owner);
     const frac = u.maxHp > 0 ? u.hp / u.maxHp : 1;
     // House HP bonus applies to ALL units; the HP upgrade is class-targeted (vehicles vs infantry).
     const upgradeHp = u.def.kind === 'vehicle' ? p.upgradeMult('vehicleHpMult')
                     : u.def.kind === 'infantry' ? p.upgradeMult('infHpMult') : 1;
-    u.maxHp = u.def.maxHp * upgradeHp * HOUSES[p.house].hpMult;
+    u.maxHp = u.def.maxHp * upgradeHp * HOUSES[p.house].hpMult * VET_HP_MULT[u.rank];
     u.hp = u.maxHp * frac;
     if (u.def.kind === 'vehicle') u.speedMult = p.upgradeMult('vehicleSpeedMult');
+  }
+
+  /** Credit one kill to a firing unit and apply a rank-up if it crossed a threshold. On rank-up
+   *  maxHp is re-derived from the base (via applyUpgradeStats, so it never compounds) and the exact
+   *  maxHp delta is ADDED to current hp — a small flat rank-up heal (NOT a proportional rescale).
+   *  Damage scaling is read live at fire-time, so nothing to bake there. */
+  private creditKill(shooter: Unit): void {
+    const before = shooter.rank;
+    shooter.kills++;
+    if (shooter.rank > before) {
+      const prevHp = shooter.hp, prevMax = shooter.maxHp;
+      this.applyUpgradeStats(shooter);          // re-derive maxHp incl. the new vet rank mult
+      shooter.hp = prevHp + (shooter.maxHp - prevMax); // flat heal by the gained maxHp
+    }
   }
 
   // ---- upgrades ----------------------------------------------------------------------------
@@ -983,7 +1001,7 @@ export class World {
     if (u.cooldown > 0) return;
     const w = u.def.weapon!;
     u.facing = Math.atan2(centerY(t) - u.y, centerX(t) - u.x);
-    this.fire(u.owner, w, u.x, u.y, t, u.def.kind);
+    this.fire(u.owner, w, u.x, u.y, t, u.def.kind, u);
     u.cooldown = w.cooldown;
     u.muzzleFlash = 0.08;
   }
@@ -994,9 +1012,11 @@ export class World {
   }
 
   /** Apply a weapon's hit: armor-scaled damage to the target (+ splash), and a visual tracer.
-   *  Damage = base × owner's damage upgrade × DAMAGE_VS_ARMOR[type][target armor]. */
+   *  Damage = base × owner's damage upgrade × DAMAGE_VS_ARMOR[type][target armor]. `shooter` (the
+   *  firing unit, absent for turrets) both scales the base by its veterancy rank and receives kill
+   *  credit when a victim dies here or in the splash. */
   private fire(owner: Faction, weapon: WeaponDef, fromX: number, fromY: number,
-               target: Combatant, shooterKind: ProduceKind): void {
+               target: Combatant, shooterKind: ProduceKind, shooter?: Unit): void {
     const tx = centerX(target), ty = centerY(target);
     const op = this.player_(owner);
     // Class-targeted damage upgrade: turrets scale via turretDamageMult, infantry via infDamageMult,
@@ -1004,14 +1024,17 @@ export class World {
     const classDmg = shooterKind === 'building' ? op.upgradeMult('turretDamageMult')
                    : shooterKind === 'infantry' ? op.upgradeMult('infDamageMult')
                    : op.upgradeMult('vehDamageMult');
-    const base = weapon.damage * op.upgradeMult('damageMult') * classDmg * HOUSES[op.house].damageMult;
-    this.damage(target, base * damageMultiplier(weapon.type, armorOf(target)));
-    if (weapon.splash) this.splash(owner, weapon, base, tx, ty, target.id);
+    // Veterancy: a ranked shooter (units only — turrets pass no shooter) multiplies its damage.
+    const vetDmg = shooter ? VET_DMG_MULT[shooter.rank] : 1;
+    const base = weapon.damage * op.upgradeMult('damageMult') * classDmg
+               * HOUSES[op.house].damageMult * vetDmg;
+    this.damage(target, base * damageMultiplier(weapon.type, armorOf(target)), shooter);
+    if (weapon.splash) this.splash(owner, weapon, base, tx, ty, target.id, shooter);
     this.projectiles.push(new Projectile(owner, weapon, fromX, fromY, tx, ty));
     this.emit(`fire-${weapon.type}`, fromX, fromY); // controller gates this to on-screen shots
   }
 
-  private damage(target: Combatant, amount: number): void {
+  private damage(target: Combatant, amount: number, shooter?: Unit): void {
     target.hp -= amount;
     target.hitFlash = this.time + HIT_FLASH_TIME;      // cosmetic white flash (renderer reads time)
     const ex = centerX(target), ey = centerY(target);
@@ -1022,6 +1045,12 @@ export class World {
       });
     }
     if (target.hp <= 0) {
+      // Veterancy: credit this kill to the firing unit (units only — turrets pass no shooter).
+      // Only UNIT kills count — razing static buildings earns no rank, otherwise an assault wave
+      // snowballs off the defender's structures (sim-verified: it degenerated the Hard ladder).
+      if (shooter && target.entityKind === 'unit' && shooter !== target && shooter.alive) {
+        this.creditKill(shooter);
+      }
       const building = target.entityKind === 'building';
       // Infantry "poof" into dust; vehicles, aircraft, and buildings get a fiery blast.
       const infantry = target.entityKind === 'unit' && target.def.kind === 'infantry';
@@ -1042,13 +1071,14 @@ export class World {
   }
 
   private splash(owner: Faction, weapon: WeaponDef, base: number, x: number, y: number,
-                 skipId: number): void {
+                 skipId: number, shooter?: Unit): void {
     const radius = weapon.splash!;
     const r2 = radius * radius;
     for (const e of this.units) {
       if (e.owner === owner || !e.alive || e.id === skipId) continue;
       if ((e.x - x) ** 2 + (e.y - y) ** 2 <= r2) {
-        this.damage(e, base * 0.5 * damageMultiplier(weapon.type, e.def.armor));
+        // Splash carries the shooter too, so a shot that splash-kills 3 credits 3 kills.
+        this.damage(e, base * 0.5 * damageMultiplier(weapon.type, e.def.armor), shooter);
       }
     }
   }

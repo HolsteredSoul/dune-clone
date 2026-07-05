@@ -41,6 +41,18 @@ export const HIT_FLASH_TIME = 0.12;    // seconds a unit/building flashes white 
 export const POPUP_TTL = 0.7;          // seconds a floating damage number lives
 export const POPUP_RISE = 20;          // px a damage number drifts upward over its life
 
+// --- Veterancy (per-unit rank from kills; deterministic, part of the sim) ---
+// Rank is derived from a unit's UNIT-kill count (building kills earn nothing — no ranking up by
+// razing structures): rank 1 at VET_THRESHOLDS[0] kills, rank 2 at [1].
+// Each rank multiplies fire-time damage (VET_DMG_MULT) and derived maxHp (VET_HP_MULT). Index 0
+// is rank 0 (no bonus). maxHp is ALWAYS re-derived from the base def × mults (never compounded),
+// exactly like the house/upgrade stat pipeline; on rank-up the maxHp delta is added to current hp.
+export const VET_THRESHOLDS = [4, 10];        // kills needed for rank 1, rank 2 (slower ranking:
+                                              // 3/8 let the AI's reinforced assaults accumulate
+                                              // ranked survivors and drifted Easy ~+15pp harder)
+export const VET_DMG_MULT = [1, 1.1, 1.2];    // damage multiplier by rank (0/1/2)
+export const VET_HP_MULT = [1, 1.1, 1.2];     // maxHp multiplier by rank (0/1/2)
+
 // --- Repair (player utility: restore building HP for credits) ---
 export const REPAIR_RATE = 90;         // building HP restored per second while repairing
 export const REPAIR_COST_FACTOR = 0.45; // credits per restored HP, as a fraction of cost/maxHp
