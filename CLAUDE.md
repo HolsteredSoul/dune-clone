@@ -29,7 +29,7 @@ TypeScript + HTML5 Canvas, bundled with Vite. No game engine.
 | HTML host + canvas | `index.html` |
 | Bootstrap / wire-up | `src/main.ts` |
 | Controller (input→commands, mission flow) | `src/game/game.ts` |
-| Mission definitions (4: 3 destroy + 1 survive) | `src/game/missions.ts` |
+| Mission definitions (6: destroy ×3, survive, destroyTarget, defend) + skirmish config | `src/game/missions.ts` |
 | Win-condition / objective types | `src/world/world.ts` (`Objective`, `checkVictory`) |
 | Fixed-timestep loop | `src/core/loop.ts` |
 | Input (keys/mouse, event queue) | `src/core/input.ts` |
@@ -74,6 +74,12 @@ Both persist for the session.
 credits; pulsing green `+` while active).
 **Audio:** procedural Web Audio (no asset files) — selection/move/per-weapon fire/build/under-attack/
 explosion/victory cues. Unlocks on first click (browser autoplay policy).
+**Veterancy:** units earn ranks from unit kills (4 → rank 1, 10 → rank 2; +10/+20% damage & max HP);
+gold chevrons above the HP bar. **Cover:** infantry on Rock tiles (incl. razed-building footprints)
+take 25% less damage.
+**Skirmish:** random symmetric map + corner swap each match; setup picks House / Difficulty /
+Starting Credits / Enemy AI (incl. Random); REMATCH from the win/lose screen. Each House also has
+an exclusive Tier-2 upgrade node (Atreides range vs Harkonnen infantry HP).
 
 > Archived quant-project governance templates live in `archive/governance-template/`
 > (not loaded; kept in case they're reused for a different project).

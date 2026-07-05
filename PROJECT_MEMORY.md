@@ -23,7 +23,47 @@ The bar for "real": a playable mission where the full loop — harvest → build
 fight → win/lose — works without breaking.
 
 ## Status (the cross-session pointer — read this first, update at session end)
-- **▶ Current phase:** STRATEGIC-DEPTH ENGAGEMENT — **BOTH PHASES COMPLETE + committed** (Phase 1 = AI
+- **▶ Current phase:** REPLAYABILITY & DEPTH CYCLE (M28–M33) — **ALL 6 ITEMS COMPLETE + committed**
+  (skirmish map variation · skirmish setup options · unit veterancy · campaign missions 5-6 ·
+  rock terrain cover · house-exclusive upgrade nodes). Full cycle adversarially reviewed
+  (fresh-context opus pass over `a9360c8..HEAD`: **zero high/medium findings**, all load-bearing
+  claims script-confirmed). Optimise pass: nothing needed (no hot-loop additions; bundle 128→136 kB).
+- **Last done (newest): the M28–M33 improvement cycle** (Review → Plan → Implement → QA → Optimise;
+  one commit per item, each gated by build + 30-run sim where sim-affecting + nettest where world/
+  sim files changed + live `window.game` E2E):
+  • **M28 — Skirmish map variation.** `makeSkirmishConfig(personality, variant, credits)`: each SP
+    skirmish rolls a fresh symmetric spice layout (one r=4 field at (32,32) + two point-reflected
+    r=3 pairs via rejection sampling — mass identical to the static layout, Σr²=52) and a 50/50
+    corner swap (`skirmishCore(faction, 'sw'|'ne')`; camera follows). `variant=false` = the legacy
+    fixed layout, used by ALL MP paths (game `makeMpConfig`, nettest, netguest) so lockstep peers
+    agree on the map. `sim.ts` re-rolls the map per skirmish run (tests the distribution).
+  • **M29 — Skirmish setup options.** STARTING CREDITS picker (Low 2000/Standard 3200/High 5000,
+    symmetric), Random enemy-AI option (resolved to a concrete archetype at Begin so saves/restart
+    carry a real id), and REMATCH/MENU buttons on the skirmish win/lose screen (rematch re-runs
+    `startSkirmish()` — same house/difficulty/credits, re-rolls map + random AI). Campaign/MP end
+    screens unchanged (click-anywhere-to-advance).
+  • **M30 — Unit veterancy.** UNIT kills (buildings credit nothing) → rank 1 at 4 kills / rank 2 at
+    10 (`VET_THRESHOLDS`), ×1.1/×1.2 fire-time damage + derived maxHp (`VET_DMG_MULT`/`VET_HP_MULT`);
+    shooter threaded through `fire()/damage()/splash()` (splash triple-kill credits 3; turrets pass
+    no shooter); maxHp folds into the M21/M27 derive-from-base pipeline; rank-up = flat hp heal by
+    the maxHp delta; additive `UnitSnapshot.kills` (no SAVE_VERSION bump); gold chevrons in renderer.
+  • **M31 — Missions 5-6** (campaign now 6; sim harness auto-includes via `MISSIONS.length`).
+    M5 "Decapitation" = `destroyTarget: radar` vs a dug-in enlarged base (turret line, the ONE radar
+    tucked behind the HQ; kill it and the base can stand). M6 "Hold the Line" = `defend: radar,
+    260s` — pre-placed player radar ringed by turrets at the base's north edge; losing it = instant
+    loss. Tuned by an opus agent over ~10 sim passes; 3 independent 30-run sweeps healthy.
+  • **M32 — Rock terrain cover.** Infantry on a Rock tile take 25% less damage (`ROCK_COVER_MULT`
+    at the single `damage()` entry). Razed-building footprints are rocked and never revert ⇒ ruins
+    double as cover. Symmetric; damage popups show the reduced amount.
+  • **M33 — House-exclusive upgrades.** `UpgradeDef.house?` + ONE gate line in `upgradePrereqsMet`
+    (covers purchase/UI/both bots/MP command). Atreides `atreides_marksmen` (RANGE +8%) vs
+    Harkonnen `harkonnen_bulwark` (INF HP +20%), both T2/650/factory-gated; sidebar HIDES the
+    foreign house's node. `sim.ts` gained `HOUSE=harkonnen npm run sim` to test the mirrored
+    matchup (both directions verified healthy).
+  **Cycle-final ladder (loss%, 30-run reads):** Easy ~20-27/50-53/17-23 + M4-M6 win 100/≥53/100 ·
+  Normal ~60-77/73-93/47-67, M5 loss ~57-70, M6 win 60-80 · Hard ~87-93/90-100/77-93, M5 loss
+  ~57-80, M6 win 7-33; passive 100% loss; monotonic ramp; nettest PASS throughout.
+- **Prior:** STRATEGIC-DEPTH ENGAGEMENT — **BOTH PHASES COMPLETE + committed** (Phase 1 = AI
   tactical overhaul / M26; Phase 2 = tiered upgrade tree / M27). **Phase 2:** the flat 4-upgrade Radar
   panel became a **12-node, 3-tier, prerequisite-gated research tree** (Weapons / Armor / Economy /
   Defense) reusing the existing owner-wide-multiplier pipeline (one-time `Set<string>`, no protocol/save
@@ -36,7 +76,7 @@ fight → win/lose — works without breaking.
   campaign 0%/100% cells** (Hard tops out ~93%), M4-survive 100/~60/~65, no <90s stomps, passive loses
   100%. The tree raised the Hard ceiling (the hard AI fields 6 upgrades + siege) while keeping Easy
   survivable — depth + difficulty, as intended. **The whole strategic-depth engagement is shipped.**
-- **Last done (newest):** **M27 — Tiered upgrade tree (strategic-depth Phase 2).** `defs.ts`: widened
+- **Prior:** **M27 — Tiered upgrade tree (strategic-depth Phase 2).** `defs.ts`: widened
   `UpgradeEffect` (added `infDamageMult`/`vehDamageMult`/`infHpMult`/`rangeMult`/`sightMult`/
   `turretDamageMult`); added optional `requiresUpgrade?`/`tier?` to `UpgradeDef`; authored 12 upgrades
   (kept the 4 legacy ids so old saves + the AI's buy resolve) + `UPGRADES_BY_TIER`. `world.ts`: generalized
@@ -379,23 +419,20 @@ fight → win/lose — works without breaking.
   (Depleted Rounds / Composite Armor / Turbo Drives / Salvage Logistics) hosted at the Radar, and
   the enemy AI now *gradually* fields Rockets/Scouts and buys one upgrade. Re-tuned the difficulty
   table + per-mission economy to restore a healthy ladder. (Full detail in the session log.)
-- **Next action (start here next session):** The whole numbered plan + every Strategic item +
-  cheap wins + the title/pause UI + **skirmish mode** are **done** (M13–M25, all committed + live).
-  Candidate next items (pick by appetite):
-  • **Stronger / less-suicidal enemy AI** (the highest-value gameplay improvement) — the skirmish
-    sim exposed that the AI throws its army into a turtle's turret line and dies (balanced/rusher/mech/
-    econ all ~100% player win vs the turtling bot; only `turtle` challenges it). An AI that probes
-    defences, focuses production buildings, and retreats from turret fire would make BOTH skirmish and
-    campaign harder + more lifelike. This is balance-bound + chaotic (sim is the oracle; never
-    parallelize) — its own focused session.
-  • **Skirmish polish** (small, low-risk): a post-match REMATCH button (currently win/lose → title;
-    settings persist so it's one click to re-run), mirrored/randomized spice for more map variety, a
-    "random" AI option, or a starting-credits/army-size slider.
-  • **Distinct rosters / superweapons per house** (deeper asymmetry — content + chaotic balance; the
-    flagship "Dune feel" upgrade on the M21 house foundation).
-  • **Unit veterancy** (balance-bound), then perf (spatial partitioning — only when it hurts), and
-    multiplayer (last). The skirmish setup overlay (`drawSkirmish`/`hitTestSkirmish` in `ui.ts`,
-    `makeSkirmishConfig` in `missions.ts`) is the natural home for any new match-setup options.
+- **Next action (start here next session):** M13–M33 are all **done, committed + live** — incl. the
+  full replayability/depth cycle (skirmish map variation + setup options, veterancy, 6-mission
+  campaign, rock cover, house-exclusive upgrades). Candidate next items (pick by appetite):
+  • **Distinct rosters / superweapons per house** (the flagship "Dune feel" upgrade on the M21/M33
+    house foundation — content + chaotic balance, its own session).
+  • **Per-mission AI personality assignment** for the campaign (system shipped in M16; needs a
+    dedicated per-mission rebalance — M31 kept both new missions on `balanced`).
+  • **MP parity for the new skirmish knobs** — multiplayer still plays the fixed legacy map with
+    3200 credits and no personality choice (`makeMpConfig` passes `variant=false`); threading
+    map-variation/credits through the lobby + protocol is a contained MP session.
+  • **More objective variety** (timed destroyTarget, escort, multi-stage missions) — the Objective
+    machinery generalizes; M31 shows the per-mission tune is the real cost (~10 sim passes each).
+  • **Perf (spatial partitioning) only when it hurts**, and sample-file audio overrides (drop-in
+    wav/mp3 preferred over synth) as polish.
 
 > **Play live: https://holsteredsoul.github.io/dune-clone/** (GitHub Pages; repo is now PUBLIC).
 > Auto-deploys on every push to `main` via `.github/workflows/deploy.yml`. `vite.config.ts` sets
@@ -649,6 +686,22 @@ session log, newest on top).
   second difficulty lever (Easy 0/Normal 3/Hard 6). Ladder stayed healthy (Easy ~20/Normal ~57/Hard ~89%
   loss, no degenerate campaign cells); tree raised the Hard ceiling. build + 2× sim + nettest + live
   E2E (prereq gating, effects, save/load with new ids) all verified. ✅ **Strategic-depth engagement done.**
+- [x] **M28 — Skirmish map variation.** Per-match randomized symmetric spice (center r=4 + two
+  point-reflected r=3 pairs, mass = static layout) + 50/50 corner swap in `makeSkirmishConfig`
+  (`variant=false` = legacy fixed map, used by all MP paths). Sim re-rolls per run. ✅
+- [x] **M29 — Skirmish setup options.** Starting-credits presets (2000/3200/5000), Random enemy-AI
+  (resolved at Begin), REMATCH/MENU on the skirmish end screen. Campaign/MP end screens unchanged. ✅
+- [x] **M30 — Unit veterancy.** Unit-kills-only credit → ranks at 4/10 kills, ×1.1/×1.2 damage +
+  derived maxHp (flat rank-up heal); shooter threaded through fire/damage/splash; additive
+  `UnitSnapshot.kills`; gold chevrons. Ladder re-tuned + 2-sweep confirmed; nettest PASS. ✅
+- [x] **M31 — Missions 5-6.** M5 "Decapitation" (destroyTarget: the one enemy radar behind a
+  turret wall) + M6 "Hold the Line" (defend: ringed player radar, 260s). Campaign = 6 missions;
+  3 independent 30-run sweeps healthy; objective wiring E2E'd live. ✅
+- [x] **M32 — Rock terrain cover.** Infantry on Rock take −25% damage (`ROCK_COVER_MULT`, single
+  `damage()` site); razed footprints = ruins-as-cover. Ladder within noise (2 sweeps). ✅
+- [x] **M33 — House-exclusive upgrades.** `UpgradeDef.house?` + one-line gate in
+  `upgradePrereqsMet`; Atreides RANGE +8% vs Harkonnen INF HP +20% (T2/650/factory); UI hides the
+  foreign node; `HOUSE=` env in sim.ts verifies the mirrored matchup. ✅ **Replayability cycle done.**
 
 ## Open tasks / current priorities
 
@@ -705,6 +758,23 @@ external plan's week-estimates are ~2–4× high for this AI-assisted workflow *
 which is the unpredictable wildcard.
 
 ## Known issues / risks
+- **Veterancy is attacker-favoring vs the sim bot — tuned via credit scope + rank rate (M30).**
+  The first cut (3/8 kill thresholds, building kills counted) let the AI's continuously-reinforced
+  assaults accumulate ranked survivors (razing structures ranked them; the defender's turrets earn
+  nothing) → Easy drifted ~+20pp and Hard M2 degenerated to 100%. Fix was structural, not numeric:
+  **only UNIT kills credit** + slower thresholds (4/10). If veterancy is ever re-tuned, watch the
+  Easy column first, and remember the bot can't micro veterans while a human can (bot reads
+  under-state the human benefit).
+- **Hard M1/M2 occasionally read 100% loss at 30 runs — usually noise, check before reacting.**
+  Their true rate sits ~93-97 post-M30; a ~95% cell reads 100% in roughly 1 of 5 sweeps by chance.
+  The tell: across consecutive sweeps the 100 alternates BETWEEN cells (M1 one sweep, M2 the next)
+  instead of pinning one cell. Confirm with a second sweep before treating it as degeneracy.
+- **`defend` = "keep ≥1 player building of targetDefId alive" (M17 semantics, relied on by M31).**
+  Rebuilding a spare radar in M6 is a legitimate, expensive fallback — the sim tune already prices
+  it in. M5's destroyTarget stays unambiguous because the enemy AI never builds a second radar
+  (its build order counts the pre-placed one as satisfying `min:1`).
+- **Skirmish sim cells now have per-run random maps (M28)** — variance is higher per cell; compare
+  skirmish bands across sweeps, not single reads. MP + campaign maps are unchanged/fixed.
 - **⚠ M26 UPDATED several lessons below — read this first.** The enemy-AI overhaul (M26) changed
   the balance landscape and REVERSED two prior "don't" decisions:
   • **Inverted-aggression is FIXED** — the AI no longer a-moves its blob into the turret kill-zone;
