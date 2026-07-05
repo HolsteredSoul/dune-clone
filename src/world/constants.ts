@@ -35,6 +35,8 @@ export const SEPARATION_RADIUS = 18;   // px: units gently push apart within thi
 export const SEPARATION_FORCE = 40;    // px/sec push strength
 export const PROJECTILE_HIT_RADIUS = 7; // px: projectile considered to hit within this
 export const CORPSE_TTL = 1.2;         // seconds an explosion/wreck mark lingers
+export const ROCK_COVER_MULT = 0.75;   // infantry on a Rock tile take 25% less damage (cover —
+                                       // ruined building footprints are rocked, so ruins count)
 
 // --- Combat juice (cosmetic only — no sim/balance effect) ---
 export const HIT_FLASH_TIME = 0.12;    // seconds a unit/building flashes white when hit

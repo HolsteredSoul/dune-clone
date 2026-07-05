@@ -7,7 +7,7 @@ import {
   TILE, MAP_W, MAP_H, HARVEST_RATE, HARVESTER_CAPACITY, HARVEST_LEASH, UNLOAD_RATE,
   SPICE_PER_CREDIT, MIN_POWER_FACTOR, SEPARATION_RADIUS, SEPARATION_FORCE, CORPSE_TTL,
   FOG_REFRESH, GUARD_LEASH, AGGRO_LEASH, HIT_FLASH_TIME, POPUP_TTL,
-  REPAIR_RATE, REPAIR_COST_FACTOR, VET_DMG_MULT, VET_HP_MULT,
+  REPAIR_RATE, REPAIR_COST_FACTOR, VET_DMG_MULT, VET_HP_MULT, ROCK_COVER_MULT,
 } from './constants';
 import { TileMap, Terrain } from './tilemap';
 import { Building, reserveBuildingIds } from './building';
@@ -1035,6 +1035,12 @@ export class World {
   }
 
   private damage(target: Combatant, amount: number, shooter?: Unit): void {
+    // Terrain cover: infantry dug in on Rock take reduced damage. Destroyed-building footprints
+    // were rocked at build time and never revert, so ruins double as cover — position matters.
+    if (target.entityKind === 'unit' && target.def.kind === 'infantry'
+        && this.map.terrain[this.map.idx(target.tileX, target.tileY)] === Terrain.Rock) {
+      amount *= ROCK_COVER_MULT;
+    }
     target.hp -= amount;
     target.hitFlash = this.time + HIT_FLASH_TIME;      // cosmetic white flash (renderer reads time)
     const ex = centerX(target), ey = centerY(target);
