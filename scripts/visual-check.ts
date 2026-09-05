@@ -6,11 +6,11 @@
 
 import { Terrain } from '../src/world/tilemap';
 import { UNITS } from '../src/world/defs';
-import { TILE } from '../src/world/constants';
+import { TILE, WORM_RADIUS } from '../src/world/constants';
 import {
   terrainFillStyle, terrainAccent, terrainDetailKind, terrainVariant, hash2,
   paintTerrainTile, paintUnitBody, unitShape, allUnitShapeIds, rosterUnitIds,
-  ownerBodyFill, ownerAccent, PLAYER_COLOR, ENEMY_COLOR, HOUSE_BODY,
+  ownerBodyFill, ownerAccent, PLAYER_COLOR, ENEMY_COLOR, HOUSE_BODY, paintWorm,
 } from '../src/render/visuals';
 import type { Draw2D, UnitShapeKind } from '../src/render/visuals';
 
@@ -162,6 +162,44 @@ check('enemy accent is the enemy red', ownerAccent('enemy', 'player') === ENEMY_
 check('house body is not the 2px-pip-only green (body uses house paint)',
   ownerBodyFill('player', 'atreides') !== PLAYER_COLOR
     && ownerBodyFill('player', 'harkonnen') !== PLAYER_COLOR);
+
+// --- (e) sandworm painter: phase-distinct, non-trivial, and gated by the rise/fall scale -------
+// NOTE: the spec for this check asked to construct a World + Renderer, render a surfaced worm,
+// and sample the head pixel against the terrain pixel. That is skipped deliberately: the Draw2D
+// stub above (like every check in this file) only logs method calls — there is no pixel/raster
+// buffer to sample, and building one would mean writing a small canvas rasterizer, well beyond
+// this script's scope. On top of that, renderer.ts calls `new Image()` at module load (sprite
+// auto-discovery), which does not exist in this pure-Node script (no DOM/jsdom here) — so even
+// constructing a real `Renderer` here isn't reasonably feasible. Instead, exactly like every
+// unit-shape assertion above, paintWorm is checked directly through the same recorder.
+const recSign = makeRecorder();
+paintWorm(recSign.ctx, { phase: 'sign', t: 0.6, seed: 7, urgent: false });
+check('wormsign (underground) paints something', recSign.paths.length > 3,
+  `paths=${recSign.paths.length}`);
+
+const recBody = makeRecorder();
+paintWorm(recBody.ctx, { phase: 'surfaced', t: 0.6, seed: 7, scale: 1, sway: 0 });
+check('surfaced worm body paints something', recBody.paths.length > 3,
+  `paths=${recBody.paths.length}`);
+
+const headArc = recBody.paths.find((p) => p.startsWith('arc:0.0,0.0,'));
+const headR = headArc ? parseFloat(headArc.split(',')[2]) : NaN;
+check('surfaced worm draws its head near WORM_RADIUS',
+  !!headArc && headR > WORM_RADIUS * 0.9 && headR < WORM_RADIUS * 1.1,
+  `headArc=${headArc}`);
+
+check('sign vs surfaced paint different signatures',
+  recSign.paths.join('|') !== recBody.paths.join('|'));
+
+const recSubmerged = makeRecorder();
+paintWorm(recSubmerged.ctx, { phase: 'surfaced', t: 0, seed: 7, scale: 0, sway: 0 });
+check('surfaced worm at scale 0 paints nothing (fully submerged)', recSubmerged.paths.length === 0,
+  `paths=${recSubmerged.paths.length}`);
+
+const recHunting = makeRecorder();
+paintWorm(recHunting.ctx, { phase: 'sign', t: 0.6, seed: 7, urgent: true });
+check('hunting wormsign differs from roaming wormsign',
+  recHunting.paths.join('|') !== recSign.paths.join('|'));
 
 console.log(failures === 0
   ? '\nVISUAL CHECK: ALL PASS'

@@ -4,6 +4,7 @@
 import { Terrain } from '../world/tilemap';
 import { UNITS } from '../world/defs';
 import type { Faction, House } from '../world/defs';
+import { WORM_RADIUS } from '../world/constants';
 
 export const PLAYER_COLOR = '#46d46e';
 export const ENEMY_COLOR = '#e0524a';
@@ -359,4 +360,168 @@ function shadeHex(hex: string, factor: number): string {
   const g = Math.max(0, Math.min(255, Math.round(((n >> 8) & 255) * factor)));
   const b = Math.max(0, Math.min(255, Math.round((n & 255) * factor)));
   return `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
+}
+
+// ---- Sandworm painters ------------------------------------------------------------------------
+// Same convention as paintUnitBody: the caller has already translated to the head position and
+// rotated so local +x points along the worm's facing. Draw2D has no gradient/scale/rotate methods,
+// so the "radial gradient" maw and the rise/fall scale are both faked with plain circles and
+// hand-scaled numbers rather than ctx.createRadialGradient / ctx.scale.
+
+const WORM_HIDE = '#9c7a45';
+const WORM_HIDE_DARK = '#6b5030';
+const WORM_HIDE_LIGHT = '#b08c54';
+const WORM_TOOTH = '#eee3c8';
+const WORM_RING_FRACS = [0.86, 0.66, 0.46]; // hoisted: no per-call array allocation
+
+export type WormPaintPhase = 'sign' | 'surfaced';
+
+export interface WormPaintOptions {
+  phase: WormPaintPhase;
+  t: number;         // world.time — animation clock (never Date.now/performance.now)
+  seed: number;       // per-worm id: deterministic per-worm variety (never Math.random)
+  urgent?: boolean;   // phase 'sign': hunting (vs roaming) — faster ripple, a bit bigger, dust
+  scale?: number;     // phase 'surfaced': 0 (submerged) .. 1 (fully risen)
+  sway?: number;      // phase 'surfaced': extra lateral offset in px (devouring shiver)
+}
+
+/**
+ * Draw a sandworm in local space (see convention note above). `phase: 'sign'` draws the
+ * underground wormsign disturbance; `phase: 'surfaced'` draws the risen body.
+ */
+export function paintWorm(ctx: Draw2D, opts: WormPaintOptions): void {
+  if (opts.phase === 'sign') {
+    paintWormSign(ctx, opts.t, opts.seed, !!opts.urgent);
+    return;
+  }
+  paintWormBody(ctx, opts.t, opts.seed, opts.scale ?? 1, opts.sway ?? 0);
+}
+
+function paintWormSign(ctx: Draw2D, t: number, seed: number, urgent: boolean): void {
+  const rate = urgent ? 5.5 : 2.6;
+  const phase0 = (hash2(seed, 0) % 1000) / 1000 * Math.PI * 2;
+  const pulse = 1 + (urgent ? 0.1 : 0.06) * Math.sin(t * rate + phase0);
+  const scale = urgent ? 1.12 : 1;
+
+  // Trailing mounds (drawn first, so the head ridge overlaps them) — approximated straight
+  // behind the head along -facing since there is no path-history buffer to trail along.
+  const mounds = urgent ? 4 : 3;
+  for (let i = mounds; i >= 1; i--) {
+    const h = hash2(seed, i);
+    const jitter = (h % 9) - 4;                              // -4..4 px lateral wobble
+    const wobble = Math.sin(t * (rate * 0.7) + (h % 7)) * 1.5;
+    const dx = -(16 + i * 13) * scale;
+    const dy = (jitter + wobble) * scale;
+    const rx = Math.max(2, (10 - i * 0.9) * scale);
+    const ry = Math.max(1.5, (5.5 - i * 0.4) * scale);
+    ctx.fillStyle = WORM_HIDE_DARK;
+    ctx.beginPath();
+    ctx.ellipse(dx, dy, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = WORM_HIDE;
+    ctx.beginPath();
+    ctx.ellipse(dx, dy - 0.6, Math.max(1.4, rx * 0.7), Math.max(1, ry * 0.6), 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Head ridge: a darker rim behind a lighter raised-sand ellipse, elongated along facing (+x).
+  const rx = 21 * scale * pulse;
+  const ry = 10 * scale * pulse;
+  ctx.fillStyle = WORM_HIDE_DARK;
+  ctx.beginPath();
+  ctx.ellipse(1, 1, rx, ry, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = WORM_HIDE_LIGHT;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, rx * 0.86, ry * 0.8, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (urgent) { // faint kicked-up dust while hunting
+    for (let i = 0; i < 4; i++) {
+      const h = hash2(seed, i + 20);
+      const ang = (h % 628) / 100;
+      const dist = 8 + ((h >>> 6) % 14);
+      const px = Math.cos(ang) * dist;
+      const py = Math.sin(ang) * dist * 0.5;
+      ctx.fillStyle = 'rgba(214,196,160,0.35)';
+      ctx.beginPath();
+      ctx.arc(px, py, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+function paintWormBody(ctx: Draw2D, t: number, seed: number, scale: number, sway: number): void {
+  const s = Math.max(0, Math.min(1, scale));
+  if (s <= 0.01) return; // fully submerged — nothing to paint
+  const phase0 = (hash2(seed, 99) % 1000) / 1000 * Math.PI * 2;
+  const throb = 1 + 0.015 * Math.sin(t * 10 + phase0); // subtle life-like pulse, never static
+  const R = WORM_RADIUS * s * throb;
+  const y0 = sway;
+
+  // The hole it is rising out of.
+  ctx.fillStyle = 'rgba(60,44,24,0.5)';
+  ctx.beginPath();
+  ctx.ellipse(0, y0 + R * 0.15, R * 1.35, R * 0.6, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Trailing body segments arcing out of the sand behind the head (-facing side).
+  for (let i = 3; i >= 1; i--) {
+    const h = hash2(seed, i + 40);
+    const dx = -R * (0.85 + i * 0.62);
+    const dy = y0 + R * (0.1 + i * 0.05) + ((h % 5) - 2) * 0.4;
+    const r = R * (0.62 - i * 0.1);
+    ctx.fillStyle = WORM_HIDE_DARK;
+    ctx.beginPath();
+    ctx.arc(dx, dy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = WORM_HIDE;
+    ctx.beginPath();
+    ctx.arc(dx, dy - r * 0.15, r * 0.78, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Head: big segmented ochre dome.
+  ctx.fillStyle = WORM_HIDE;
+  ctx.strokeStyle = WORM_HIDE_DARK;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(0, y0, R, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.strokeStyle = WORM_HIDE_DARK;
+  ctx.lineWidth = Math.max(1, R * 0.05);
+  for (const f of WORM_RING_FRACS) {
+    ctx.beginPath();
+    ctx.arc(0, y0, R * f, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // Maw: concentric dark circles stand in for a radial gradient (Draw2D has no gradients).
+  const mawR = R * 0.56;
+  ctx.fillStyle = '#241408';
+  ctx.beginPath(); ctx.arc(0, y0, mawR, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#150b04';
+  ctx.beginPath(); ctx.arc(0, y0, mawR * 0.68, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#020100';
+  ctx.beginPath(); ctx.arc(0, y0, mawR * 0.38, 0, Math.PI * 2); ctx.fill();
+
+  // Teeth: pale triangles ringed around the maw mouth.
+  const teeth = 12;
+  const toothLen = mawR * 0.42;
+  const baseW = mawR * 0.22;
+  ctx.fillStyle = WORM_TOOTH;
+  for (let i = 0; i < teeth; i++) {
+    const a = (i / teeth) * Math.PI * 2;
+    const nx = Math.cos(a), ny = Math.sin(a);
+    const bx = nx * mawR, by = y0 + ny * mawR;
+    const tanX = -ny, tanY = nx; // tangent direction — gives the tooth its base width
+    ctx.beginPath();
+    ctx.moveTo(bx - tanX * baseW * 0.5, by - tanY * baseW * 0.5);
+    ctx.lineTo(bx + tanX * baseW * 0.5, by + tanY * baseW * 0.5);
+    ctx.lineTo(bx - nx * toothLen, by - ny * toothLen);
+    ctx.closePath();
+    ctx.fill();
+  }
 }
