@@ -8,15 +8,16 @@ import type { Unit } from '../world/unit';
 import { BUILDINGS, UNITS, UPGRADES, BUILD_MENU_ORDER, UPGRADES_BY_TIER, STANCE_LABEL, DIFFICULTY, DIFFICULTY_ORDER, HOUSES, HOUSE_ORDER, otherHouse } from '../world/defs';
 import type { Stance, Difficulty, House, Faction } from '../world/defs';
 import { PERSONALITIES, PERSONALITY_ORDER } from '../world/ai';
-import { SKIRMISH_CREDITS } from '../game/missions';
+import { SKIRMISH_CREDITS, SKIRMISH_WORMS } from '../game/missions';
+import { wormSurfaced } from '../world/worm';
 
 /** A click on the brief screen's pickers (difficulty or house), or null for "begin". */
 export type OverlayPick = { difficulty: Difficulty } | { house: House };
 /** Current skirmish-setup selections, passed to drawSkirmish for active-state highlighting. */
-export interface SkirmishSel { house: House; difficulty: Difficulty; ai: string; credits: number; }
+export interface SkirmishSel { house: House; difficulty: Difficulty; ai: string; credits: number; worms: number; }
 /** A click on the skirmish-setup screen. */
 export type SkirmishPick =
-  | { house: House } | { difficulty: Difficulty } | { ai: string } | { credits: number }
+  | { house: House } | { difficulty: Difficulty } | { ai: string } | { credits: number } | { worms: number }
   | { action: 'begin' | 'back' };
 import { SIDEBAR_W, TILE, MAP_W, MAP_H } from '../world/constants';
 import { terrainFillStyle } from './visuals';
@@ -56,6 +57,7 @@ export class Ui {
   private pauseRects: { id: string; rect: Rect }[] = [];
   private aiRects: { id: string; rect: Rect }[] = [];
   private creditRects: { credits: number; rect: Rect }[] = [];
+  private wormRects: { worms: number; rect: Rect }[] = [];
   private skActionRects: { action: 'begin' | 'back'; rect: Rect }[] = [];
   private endRects: { action: 'rematch' | 'menu'; rect: Rect }[] = [];
   private minimap: Rect = { x: 0, y: 0, w: 0, h: 0 };
@@ -89,6 +91,7 @@ export class Ui {
     this.pauseRects = [];
     this.aiRects = [];
     this.creditRects = [];
+    this.wormRects = [];
     this.skActionRects = [];
     this.endRects = [];
     if (overlay === 'none' && selUnits.length > 0) this.drawCommandBar(selUnits);
@@ -370,6 +373,25 @@ export class Ui {
       ctx.arc(ax, ay, 2 + pulse * 6, 0, Math.PI * 2);
       ctx.stroke();
     }
+
+    // Sandworm markers — a small dot while submerged, a pulsing ring while surfaced. Same
+    // world-px → minimap-px mapping as the under-attack ping above.
+    for (const wm of world.worms) {
+      const wtx = Math.floor(wm.x / TILE), wty = Math.floor(wm.y / TILE);
+      if (world.config.fog && !world.fog.visible(wtx, wty)) continue;
+      const wx = x + (wm.x / TILE) * sx, wy = y + (wm.y / TILE) * sy;
+      if (wormSurfaced(wm)) {
+        const pulse = 1 - ((world.time % 0.6) / 0.6); // re-pulses every 0.6s
+        ctx.strokeStyle = `rgba(216,79,230,${0.4 + 0.5 * pulse})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(wx, wy, 4 + pulse, 0, Math.PI * 2);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = '#d84fe6';
+        ctx.fillRect(wx - 1, wy - 1, 2, 2);
+      }
+    }
   }
 
   private drawOverlay(world: World, overlay: Overlay, difficulty: Difficulty, hasSave: boolean,
@@ -388,7 +410,7 @@ export class Ui {
     if (overlay === 'title') {
       this.drawTitle(cx, hasSave);
     } else if (overlay === 'skirmish') {
-      this.drawSkirmish(cx, skirmishSel ?? { house: 'atreides', difficulty, ai: 'balanced', credits: 3200 });
+      this.drawSkirmish(cx, skirmishSel ?? { house: 'atreides', difficulty, ai: 'balanced', credits: 3200, worms: 1 });
     } else if (overlay === 'paused') {
       this.drawPause(cx);
     } else if (overlay === 'brief') {
@@ -621,6 +643,20 @@ export class Ui {
     ctx.textAlign = 'center';
     cy += cbh + 24;
 
+    // Sandworm-count picker.
+    ctx.fillStyle = '#8a929c'; ctx.font = 'bold 11px monospace';
+    ctx.fillText('SANDWORMS', cx, cy); cy += 8;
+    const wbw = 90, wbh = 24, wgap = 10;
+    let wbx = cx - (wbw * SKIRMISH_WORMS.length + wgap * (SKIRMISH_WORMS.length - 1)) / 2;
+    for (const wc of SKIRMISH_WORMS) {
+      const rect = { x: wbx, y: cy, w: wbw, h: wbh };
+      this.wormRects.push({ worms: wc.value, rect });
+      this.button(rect, wc.label, wc.value === sel.worms, false);
+      wbx += wbw + wgap;
+    }
+    ctx.textAlign = 'center';
+    cy += wbh + 24;
+
     // Enemy AI personality picker (+ a 'Random' option that resolves an archetype on begin).
     ctx.fillStyle = '#8a929c'; ctx.font = 'bold 11px monospace';
     ctx.fillText('ENEMY AI', cx, cy); cy += 8;
@@ -786,6 +822,7 @@ export class Ui {
     for (const h of this.houseRects) if (inRect(x, y, h.rect)) return { house: h.h };
     for (const d of this.diffRects) if (inRect(x, y, d.rect)) return { difficulty: d.d };
     for (const c of this.creditRects) if (inRect(x, y, c.rect)) return { credits: c.credits };
+    for (const wr of this.wormRects) if (inRect(x, y, wr.rect)) return { worms: wr.worms };
     for (const s of this.skActionRects) if (inRect(x, y, s.rect)) return { action: s.action };
     return null;
   }

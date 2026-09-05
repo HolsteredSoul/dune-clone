@@ -6,7 +6,7 @@
 
 import { World } from '../src/world/world';
 import type { MissionConfig } from '../src/world/world';
-import { MISSIONS } from '../src/game/missions';
+import { MISSIONS, makeSkirmishConfig } from '../src/game/missions';
 import { TILE } from '../src/world/constants';
 import { Camera } from '../src/core/camera';
 import {
@@ -135,6 +135,12 @@ check('isDoubleClick within window', isDoubleClick(a.id, 1000, a.id, 1000 + DOUB
 check('isDoubleClick expires', isDoubleClick(a.id, 1000, a.id, 1000 + DOUBLE_CLICK_MS) === false);
 check('isDoubleClick different unit', isDoubleClick(a.id, 1000, b.id, 1100) === false);
 check('isDoubleClick unset prev', isDoubleClick(-1, 0, a.id, 10) === false);
+
+// --- (e) skirmish sandworm-count threading (makeSkirmishConfig -> MissionConfig.worms) --------
+check('makeSkirmishConfig threads an explicit worm count',
+  makeSkirmishConfig('balanced', true, 3200, 2).worms === 2);
+check('makeSkirmishConfig defaults worms to 1',
+  makeSkirmishConfig('balanced', true, 3200).worms === 1);
 
 console.log(failures === 0
   ? '\nPLAYABILITY CHECK: ALL PASS'

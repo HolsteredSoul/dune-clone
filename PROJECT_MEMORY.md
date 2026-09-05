@@ -23,14 +23,40 @@ The bar for "real": a playable mission where the full loop — harvest → build
 fight → win/lose — works without breaking.
 
 ## Status (the cross-session pointer — read this first, update at session end)
-- **▶ Current phase:** PLAYABILITY / READABILITY PASS — **COMPLETE** (distinct unit silhouettes +
+- **▶ Current phase:** SANDWORMS + GAMEPLAY/VISUAL CYCLE (M34–M36) — **COMPLETE** (2026-09-05,
+  run under a `/goal`: "improve gameplay, game visuals and add worms"). Three commits: **M34**
+  sandworms (deterministic neutral hazard) + escort/follow order · **M35** renderer visual pass
+  (worm art + wormsign, sand spray, unit shadows, dust trails, mining plume, scorch decals, rocket
+  smoke, camera shake, ambient sand, follow marker) · **M36** controller/UI QoL (worm toast +
+  minimap marker + audio routing, skirmish SANDWORMS picker None/One/Two, `Q` select-all-combat,
+  mission-1 brief, Controls docs). Gates: `scripts/worm-check.ts` ALL PASS · `npm run nettest`
+  PASS · 3× 30-run sim (worms / `WORMS=0` baseline / final) — ladder inside every documented band
+  · clean `npm run build` (bundle 136→161 kB) · live in-browser E2E (skirmish picker renders,
+  worm surfaces/devours/wormsign, escort orders, `Q`, toast, minimap ring, save/load round-trip
+  byte-identical, zero console errors) · two adversarial reviews (opus on the sim diff — 2 MEDIUM
+  gameplay findings fixed, zero determinism findings; sonnet on the renderer/UI diff).
+- **Last done (newest): M34–M36 detail.** *Worms* (`src/world/worm.ts`, ~330 lines): roaming →
+  hunting (prey = loudest reachable unit within 14 tiles; harvester 3 / vehicle 2 / infantry 0.6,
+  ×0.3 stationary, mining counts as loud) → surfacing 1.0s → bite (every ground unit on sand within
+  30px) → devouring 1.3s → submerging 0.8s → 45s sated calm; miss = 8s calm; driven off (110 dmg vs
+  heavy while up — one volley from 3 tanks) = 35s calm; hunts time out at 22s; a building dropped
+  over a submerged worm relocates it (ring scan) instead of trapping it. Spawn ≥10 tiles from any
+  building, 35–55s opening grace. `MissionConfig.worms` (default 1). Escort guns: any weapon
+  whose cooldown already elapsed and that is not on an `attack` order fires at a surfaced worm
+  (projectile + cue, damage to the worm's repel budget only). *Escort order:* `commandSmart`
+  friendly-unit branch AFTER the harvest-click check (review fix), `behave` `'follow'` chases
+  threats only while the escort is within `GUARD_LEASH` of the leader. *Balance:* the worm is
+  symmetric; reads moved within noise on every core cell (see Known issues for the one survive cell
+  that drifted). Files: `world/{worm,world,unit,constants}.ts`, `core/audio.ts`, `scripts/{sim,
+  worm-check}.ts`, `render/{renderer,visuals,fx,ui}.ts`, `game/{game,missions}.ts`, `CLAUDE.md`.
+- **Prior phase:** PLAYABILITY / READABILITY PASS — **COMPLETE** (distinct unit silhouettes +
   house-painted hulls, richer sand/rock/spice, shift-toggle + double-click same-type select,
   selected-unit destination markers). Renderer + controller only; no sim/net/balance change.
   Gated by `scripts/playability-check.ts` + `scripts/visual-check.ts` (drive shipped helpers + a
   real `World`), 2× `npm run build`, and 2× live Playwright loads of `dist/` (canvas 1280×800
   matching CSS, painted fraction 1.0, spice orange / rock darker than sand / Atreides-blue vs
   Harkonnen-red body pixels).
-- **Last done (newest): playability + battlefield readability.** Units are no longer a shared
+- **Prior: playability + battlefield readability.** Units are no longer a shared
   rotated triangle: each `def.id` has its own silhouette recipe in `src/render/visuals.ts`
   (trooper oval, rocketeer + pack, buggy + wheels, harvester hopper, tank turret, artillery
   barrel, ornithopter wings). Hull fill is house color (Atreides blue / Harkonnen red) with the
@@ -438,9 +464,13 @@ fight → win/lose — works without breaking.
   (Depleted Rounds / Composite Armor / Turbo Drives / Salvage Logistics) hosted at the Radar, and
   the enemy AI now *gradually* fields Rockets/Scouts and buys one upgrade. Re-tuned the difficulty
   table + per-mission economy to restore a healthy ladder. (Full detail in the session log.)
-- **Next action (start here next session):** M13–M33 plus the **playability/readability pass**
-  (silhouettes, terrain grain, shift/double-click select, order markers) are **done**. Candidate
+- **Next action (start here next session):** M13–M36 are **done** (worms shipped). Candidate
   next items (pick by appetite):
+  • **Worm follow-ups:** a Thumper (deployable that lures the worm — turn it on the enemy's
+    harvesters), a killable worm (big HP pool + respawn timer), 2-worm campaign missions, and a
+    per-mission `worms` tune (M4 "Last Stand" reads harder for the bot with a worm; see Known issues).
+  • **Spice blooms** (periodic new spice fields — economy dynamics + a worm magnet; deterministic
+    via the worm PRNG pattern; balance-bound).
   • **Distinct rosters / superweapons per house** (the flagship "Dune feel" upgrade on the M21/M33
     house foundation — content + chaotic balance, its own session).
   • **Per-mission AI personality assignment** for the campaign (system shipped in M16; needs a
@@ -571,6 +601,33 @@ fight → win/lose — works without breaking.
   army, so over-teching starves it — a low buffer made the bot field a tiny army and lose, which is a
   bot-proxy artifact, not real balance. Net: the tree adds strategic depth + raises the Hard ceiling (the
   hard AI fields more upgrades + siege) while Easy stays survivable.
+
+- **Sandworms are NEUTRAL, deterministic sim state — a hazard system, not a faction (M34).**
+  `src/world/worm.ts` (`WormSystem` + plain-data `Worm`) is driven from `World.update` right after
+  units/turrets; the ONLY entropy is a mulberry32 stream (same generator as the AI) seeded once at
+  construction and **serialized inside `WorldSnapshot.worms`** (additive optional key, no
+  `SAVE_VERSION` bump; pre-worm saves respawn fresh), so saves, the MP host snapshot, the desync hash
+  and the headless sim all replay the same worm. Rules: it hunts VIBRATION on open sand (prey score
+  = class weight harvester 3 / vehicle 2 / infantry 0.6, ×0.3 when stationary, distance-weighted;
+  a mining harvester counts as loud), never crosses Rock or building footprints (rocked ruins are
+  safe ground), ignores flyers, and a bite devours every ground unit within the maw radius on sand
+  (no wreck, no kill credit, no popup — `World.devour`). **Counter-play without a targeting
+  rewrite:** the worm is deliberately NOT a `Combatant` (that would touch engage/fire/damage/the
+  MP attack command); instead, while it is surfaced every gun/turret whose cooldown has already
+  elapsed (i.e. did not fire at a real enemy this tick — enemies keep priority) auto-fires at it,
+  and `WORM_REPEL_DAMAGE` (110 vs heavy armour ≈ one volley from 3 tanks) drives it under — during
+  the 1s surfacing window that cancels the bite. Pacing lever = `WORM_SATED_TIME` (45s of calm
+  after a meal); `MissionConfig.worms` (default 1, 0 disables; skirmish picker None/One/Two).
+  Symmetric by construction (both sides' harvesters are prey) — the 30-run ladder stayed inside
+  every documented band with worms on. Audio cues `worm-sign/worm-surface/worm-eat` go through the
+  existing `emit` queue; the wormsign cue is gated on `localFaction` (presentation only). Gated by
+  `scripts/worm-check.ts` (hunt→surface→bite, rock-safe, repel, worms:0, save/load + hash
+  determinism) and `WORMS=0 npm run sim` for a no-worm baseline read.
+- **Escort/follow is a sim order resolved inside `commandSmart` (M34).** Right-clicking a friendly
+  unit sets `order.kind='follow'` (targetId = leader): the escort shoots what is in range without
+  stopping, chases a threat only while it stays within `GUARD_LEASH` of the leader, then falls
+  back in; harvesters never escort. Because the MP `smart` command already carries only
+  `(unitIds, wx, wy)` and the World resolves the click, **no protocol change** was needed.
 
 ## Build methodology — agent & orchestrator direction (how this project is built)
 Operate as a **lead orchestrator**: per task run *assess complexity → plan → execute (direct or
@@ -777,6 +834,21 @@ external plan's week-estimates are ~2–4× high for this AI-assisted workflow *
 which is the unpredictable wildcard.
 
 ## Known issues / risks
+- **Sandworm reads (M34).** (1) A worm (hunt speed 100) cannot catch a harvester driving at 110 —
+  it catches it when it stops to mine/unload, which is the intended Dune tension; hunts time out
+  after 22s so it never pins. (2) With a worm on, **Normal M4 "Last Stand" read 50 → 37 → 20% win
+  across three sweeps** (Easy/Hard M4 fine, Hard M4 47): the sim bot never shields its harvesters
+  and the survive clock leaves no time to recover the economy, so the bot under-states this cell
+  even more than before (a human parks harvesters by rock / escorts). Every other cell moved within
+  the ±15pp noise band vs the `WORMS=0` baseline. If M4 needs a tune, prefer `worms: 0` or a
+  longer grace on that mission over global worm nerfs. (3) A bite takes EVERY ground unit in the
+  30px maw (a clump of escorts can go with the harvester) — the toast reports the count.
+  (4) The worm's auto-fire reads unit cooldowns AFTER `updateUnits`, so a unit walking toward an
+  out-of-range enemy may spend its shot on a passing worm (units on an explicit `attack` order are
+  exempt); accepted as opportunistic fire.
+- **In-app Browser pane throttles rAF** (the sim freezes while the pane is not fronted, toasts
+  linger) — for E2E, step the sim from JS (`for (...) game.world.update(1/60)`) then
+  `game.render()` and screenshot; screenshots DO work here (unlike the old Playwright harness).
 - **Veterancy is attacker-favoring vs the sim bot — tuned via credit scope + rank rate (M30).**
   The first cut (3/8 kill thresholds, building kills counted) let the AI's continuously-reinforced
   assaults accumulate ranked survivors (razing structures ranked them; the defender's turrets earn
@@ -886,6 +958,15 @@ which is the unpredictable wildcard.
   Revisit if/when bumping Vite intentionally.
 
 ## Session log (terse; newest on top)
+- **2026-09-05 (later)** — **M34–M36: sandworms + escort + visual pass + QoL** (`/goal` session,
+  orchestrator + 2 sonnet implementers on disjoint file sets + 1 opus and 1 sonnet reviewer).
+  Sim core written single-hand first (worm.ts, world hooks, audio cues, follow order), then the
+  renderer and controller agents fanned out against the pinned `Worm` types while three 30-run
+  sim sweeps ran in the background. Review fixes: harvest-click priority over escort, unstick a
+  worm under new construction, follow leash from the escort, no cooldown theft from `attack`
+  orders, deserialize fallback after `rebuildBlocked`, `WORMS=` NaN guard. Worm repel lowered
+  300→110 after the probe showed 6 tanks could not cancel a bite. Verified: worm-check ALL PASS,
+  nettest PASS, build clean, ladder in band, live E2E with screenshots.
 - **2026-09-05** — **Playability / readability pass.** Distinct per-type silhouettes + house hull
   paint, hash-varied sand/rock/spice with intra-tile detail, shift-toggle + double-click
   same-type select, destination markers for selected orders. Extracted testable helpers

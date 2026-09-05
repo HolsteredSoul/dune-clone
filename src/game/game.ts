@@ -63,6 +63,7 @@ export class Game {
   private skirmishConfig: MissionConfig | null = null; // the live skirmish config (for save + rematch)
   private skirmishAi = 'balanced';        // session-persistent enemy AI personality pick ('random' resolved on start)
   private skirmishCredits = 3200;         // session-persistent starting-credits pick
+  private skirmishWorms = 1;              // session-persistent sandworm-count pick (0=None,1=One,2=Two)
   private lobby: Lobby | null = null;     // lazy DOM multiplayer lobby (additive; outside the sim)
   // Multiplayer: which faction THIS client controls/views, and the active lockstep session.
   // Single-player keeps localFaction='player' and net=null, so every path below is unchanged.
@@ -82,6 +83,9 @@ export class Game {
   // Transient on-screen confirmation (save/load feedback).
   private toastMsg = '';
   private toastTtl = 0;
+  // Edge-detects a new sandworm meal (world.wormAlertTime advancing) to fire a one-shot toast;
+  // reset in begin() so a fresh match doesn't replay a stale value.
+  private lastWormAlert = -99;
 
   constructor(
     private readonly cam: Camera,
@@ -119,6 +123,7 @@ export class Game {
     this.groups.clear();
     this.lastGroupTap = { n: -1, t: 0 };
     this.lastUnitClick = { id: -1, t: 0 };
+    this.lastWormAlert = -99;
   }
 
   private load(i: number): void {
@@ -134,7 +139,7 @@ export class Game {
     const ai = this.skirmishAi === 'random'
       ? PERSONALITY_ORDER[Math.floor(Math.random() * PERSONALITY_ORDER.length)]
       : this.skirmishAi;
-    const cfg = makeSkirmishConfig(ai, true, this.skirmishCredits);
+    const cfg = makeSkirmishConfig(ai, true, this.skirmishCredits, this.skirmishWorms);
     this.skirmishConfig = cfg;
     this.inSkirmish = true;
     this.missionIndex = -1; // no campaign index
@@ -174,18 +179,33 @@ export class Game {
 
   frame(): void {
     this.handleInput();
+    this.checkWormAlert();
     this.playWorldAudio();
     this.render();
     this.input.flush();
   }
 
+  /** Edge-detect a new sandworm meal taken from the local faction (world.wormAlertTime already
+   *  scopes itself to the local faction) and surface it as a one-shot toast. */
+  private checkWormAlert(): void {
+    if (this.world.wormAlertTime > this.lastWormAlert) {
+      this.lastWormAlert = this.world.wormAlertTime;
+      const n = this.world.wormVictimCount;
+      this.toast(`Sandworm devoured your ${n > 1 ? `${n} units` : this.world.wormVictim}!`);
+    }
+  }
+
   /** Drain the sim's per-tick sound cues. Spatial cues (fire/explosion) are gated to on-screen
-   *  shots and panned by their screen-x; alerts/UI confirmations always play centred. */
+   *  shots and panned by their screen-x; worm-surface/worm-eat are panned but NOT camera-gated
+   *  (you should still hear a worm eating your harvester off-screen); everything else (including
+   *  the worm-sign warning) always plays centred. */
   private playWorldAudio(): void {
     const events = this.world.audioEvents;
     for (const e of events) {
       if (e.name.startsWith('fire') || e.name.startsWith('explosion')) {
         if (!this.onScreen(e.x, e.y)) continue;
+        audio.play(e.name, this.panFor(e.x));
+      } else if (e.name === 'worm-surface' || e.name === 'worm-eat') {
         audio.play(e.name, this.panFor(e.x));
       } else {
         audio.play(e.name);
@@ -303,6 +323,7 @@ export class Game {
       this.inSkirmish = true;
       this.skirmishConfig = data.skirmish;
       this.skirmishAi = data.skirmish.aiPersonality ?? 'balanced';
+      this.skirmishWorms = data.skirmish.worms ?? 1;
       this.missionIndex = -1;
       this.world = new World(data.skirmish, this.difficulty, this.playerHouse);
       this.world.deserialize(data.world);
@@ -317,6 +338,7 @@ export class Game {
         MISSIONS[this.missionIndex].aiPersonality);
     }
     this.ai.restore(data.ai);
+    this.lastWormAlert = this.world.wormAlertTime; // don't replay a pre-save meal as a fresh toast
 
     this.cam.x = data.cam.x; this.cam.y = data.cam.y;
     this.selected.clear();
@@ -358,6 +380,7 @@ export class Game {
       else if ('difficulty' in pick) this.difficulty = pick.difficulty;
       else if ('ai' in pick) this.skirmishAi = pick.ai;
       else if ('credits' in pick) this.skirmishCredits = pick.credits;
+      else if ('worms' in pick) this.skirmishWorms = pick.worms;
       else if (pick.action === 'begin') this.startSkirmish();
       else if (pick.action === 'back') this.enterTitle();
       return;
@@ -598,6 +621,16 @@ export class Game {
       case 'KeyS': if (units.length) { this.emit({ kind: 'stop', unitIds: units.map((u) => u.id) }); audio.play('move'); } break;
       case 'KeyH': if (units.length) { this.emit({ kind: 'hold', unitIds: units.map((u) => u.id) }); audio.play('move'); } break;
       case 'KeyG': if (units.length) { this.emit({ kind: 'guard', unitIds: units.map((u) => u.id) }); audio.play('move'); } break;
+      case 'KeyQ': {
+        const combat = this.world.units.filter((u) => u.owner === this.localFaction && u.alive && !u.def.harvester);
+        if (combat.length) {
+          this.selected.clear();
+          this.selectedBuilding = null;
+          for (const u of combat) this.selected.add(u.id);
+          audio.play('select');
+        }
+        break;
+      }
       case 'KeyR': {
         const b = this.selectedBuilding;
         if (b && b.owner === this.localFaction) {
@@ -734,7 +767,10 @@ export class Game {
     this.renderer.draw(this.world, this.cam, view, this.localFaction);
     const hasSave = this.overlay === 'title' && this.titleHasSave; // cached on title-entry, no per-frame I/O
     const skirmishSel: SkirmishSel | null = this.overlay === 'skirmish'
-      ? { house: this.playerHouse, difficulty: this.difficulty, ai: this.skirmishAi, credits: this.skirmishCredits }
+      ? {
+          house: this.playerHouse, difficulty: this.difficulty, ai: this.skirmishAi,
+          credits: this.skirmishCredits, worms: this.skirmishWorms,
+        }
       : null;
     this.ui.draw(this.world, this.cam, this.cam.viewW + SIDEBAR_W, this.cam.viewH,
       this.overlay, selUnits, this.difficulty, audio.muted,

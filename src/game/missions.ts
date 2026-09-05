@@ -138,6 +138,13 @@ export const SKIRMISH_CREDITS = [
   { id: 'high', label: 'High', value: 5000 },
 ] as const;
 
+/** Sandworm-count presets for the skirmish setup screen (id/label/value). Default is 'one' (1). */
+export const SKIRMISH_WORMS = [
+  { id: 'none', label: 'None', value: 0 },
+  { id: 'one', label: 'One', value: 1 },
+  { id: 'two', label: 'Two', value: 2 },
+] as const;
+
 /** Build a one-off skirmish MissionConfig: symmetric economy, equal credits (difficulty mods then
  *  tilt it), destroyAll win condition, and the chosen enemy AI archetype. Used by BOTH the
  *  controller (game.ts) and the balance harness (sim.ts) so they test the same thing.
@@ -145,7 +152,9 @@ export const SKIRMISH_CREDITS = [
  *  randomized symmetric spice layout and a coin-flip corner swap (player SW/NE, enemy the
  *  opposite); `variant = false` reproduces the exact legacy static layout (used by MP, which
  *  needs a fixed map both peers agree on ahead of the lockstep session). */
-export function makeSkirmishConfig(personality = 'balanced', variant = true, credits = 3200): MissionConfig {
+export function makeSkirmishConfig(
+  personality = 'balanced', variant = true, credits = 3200, worms = 1,
+): MissionConfig {
   if (!variant) {
     const p = playerCore();
     const e = enemyCore();
@@ -161,6 +170,7 @@ export function makeSkirmishConfig(personality = 'balanced', variant = true, cre
       spiceFields: SPICE,
       buildings: [...p.b, ...e.b],
       units: [...p.u, ...e.u],
+      worms,
     };
   }
 
@@ -180,6 +190,7 @@ export function makeSkirmishConfig(personality = 'balanced', variant = true, cre
     spiceFields: randomSpiceLayout(),
     buildings: [...p.b, ...e.b],
     units: [...p.u, ...e.u],
+    worms,
   };
 }
 
@@ -191,7 +202,8 @@ const MISSION_1: MissionConfig = (() => {
     name: 'Mission 1 — Foothold',
     brief: 'Establish your economy and destroy the enemy base to the north-east. Your Barracks '
       + 'trains infantry and Rocket Troopers (your anti-armour answer) — mass a mixed force and '
-      + 'push out before their waves build up.',
+      + 'push out before their waves build up. Sandworms hunt anything moving on open sand — keep '
+      + 'harvesters near rock and guns close; right-click a friendly unit to escort it.',
     fog: true,
     aggression: 0.82,
     // Campaign uses the 'balanced' default (preserves the sim-verified ladder). The other

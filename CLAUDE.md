@@ -20,6 +20,9 @@ TypeScript + HTML5 Canvas, bundled with Vite. No game engine.
 - `npm run build` — type-check + production build to `dist/`.
 - `npm run sim` — headless balance harness: bot-vs-AI matches across missions × difficulties,
   prints win-rates/durations. Source: `scripts/sim.ts` (bundled via the local esbuild).
+  `WORMS=0 npm run sim` reads the no-sandworm baseline; `HOUSE=harkonnen` mirrors the matchup.
+- Headless gates (bundle like `sim`): `scripts/worm-check.ts` (sandworm lifecycle + save/load/
+  lockstep determinism), `scripts/playability-check.ts`, `scripts/visual-check.ts`.
 - `npm run relay` — multiplayer relay server (Node `ws`, standalone like `sim.ts`; not bundled
   into the client). `npm run nettest` — headless 2-client lockstep determinism check (needs relay).
 
@@ -39,11 +42,12 @@ TypeScript + HTML5 Canvas, bundled with Vite. No game engine.
 | Building + unit data defs (stats/costs/tech) | `src/world/defs.ts` |
 | Sim orchestrator (economy/combat/win-lose) | `src/world/world.ts` |
 | Enemy AI | `src/world/ai.ts` |
+| Sandworms (neutral hazard system; deterministic, serialized) | `src/world/worm.ts` (+ `scripts/worm-check.ts` gate) |
 | Per-faction economy + production queues | `src/world/player.ts` |
 | Building / Unit / Projectile entities | `src/world/{building,unit,projectile}.ts` |
 | Difficulty table (Easy/Normal/Hard mods) | `src/world/defs.ts` (`DIFFICULTY`) |
 | Faction houses (Atreides/Harkonnen mods) | `src/world/defs.ts` (`HOUSES`) |
-| Headless balance harness | `scripts/sim.ts` |
+| Headless balance harness (`RUNS=`, `HOUSE=`, `WORMS=` env knobs) | `scripts/sim.ts` |
 | Tile map + terrain + spice | `src/world/tilemap.ts` |
 | Fog of war | `src/world/fog.ts` |
 | Tunable constants | `src/world/constants.ts` |
@@ -55,7 +59,8 @@ TypeScript + HTML5 Canvas, bundled with Vite. No game engine.
 | MP relay server (standalone Node) | `server/relay.ts` (+ `scripts/nettest.ts` cross-check) |
 
 ## Controls
-Left-drag/click select · **Shift-click** add/toggle a unit · **double-click** select all on-screen units of that type · right-click move/attack/harvest · sidebar builds structures (click,
+Left-drag/click select · **Shift-click** add/toggle a unit · **double-click** select all on-screen units of that type · right-click move/attack/harvest/escort (right-click a friendly unit to escort
+it — escorts shoot threats near the leader and fall back in; harvesters don't escort) · sidebar builds structures (click,
 then click map to place) & queues units (**right-click a sidebar icon to cancel one — refunds**;
 multiple Barracks/War Factories build in parallel) · minimap to jump · **arrows/edge/minimap pan** (WASD
 freed for commands). Unit commands (selection): `A` attack-move · `S` stop · `H` hold · `G`
@@ -68,7 +73,8 @@ selected, then right-click to set where its new units gather (right-click the bu
 **Difficulty + House:** on the mission brief screen pick Easy/Normal/Hard **and** your House
 (Atreides = +dmg/−HP glass cannon, Harkonnen = +HP/−dmg tank; the enemy is the opposite house).
 Both persist for the session.
-`Space` home · `Esc` cancel · `M` mute (or click the top-bar speaker; persists in `localStorage`).
+`Space` home · `Esc` cancel · `M` mute (or click the top-bar speaker; persists in `localStorage`) ·
+`Q` select all combat units (map-wide, your units, excludes harvesters).
 **Save/load:** `Ctrl+S` quick-save · `Ctrl+L` quick-load (one slot in `localStorage`; play only).
 **Repair:** select a damaged player building, press `R` to toggle self-repair (heals HP, drains
 credits; pulsing green `+` while active).
@@ -77,9 +83,13 @@ explosion/victory cues. Unlocks on first click (browser autoplay policy).
 **Veterancy:** units earn ranks from unit kills (4 → rank 1, 10 → rank 2; +10/+20% damage & max HP);
 gold chevrons above the HP bar. **Cover:** infantry on Rock tiles (incl. razed-building footprints)
 take 25% less damage.
+**Sandworms:** one roams each map by default (skirmish setup picks None/One/Two); hunts vibration
+on open sand — moving vehicles and mining harvesters most — and can't cross Rock (rocked ruins
+count); ignores aircraft. Escort guns and turrets auto-fire at it once it surfaces; 110 damage
+absorbed drives it back under (during the 1s surfacing window, that even cancels the bite).
 **Skirmish:** random symmetric map + corner swap each match; setup picks House / Difficulty /
-Starting Credits / Enemy AI (incl. Random); REMATCH from the win/lose screen. Each House also has
-an exclusive Tier-2 upgrade node (Atreides range vs Harkonnen infantry HP).
+Starting Credits / Enemy AI (incl. Random) / Sandworms (None/One/Two); REMATCH from the win/lose
+screen. Each House also has an exclusive Tier-2 upgrade node (Atreides range vs Harkonnen infantry HP).
 
 > Archived quant-project governance templates live in `archive/governance-template/`
 > (not loaded; kept in case they're reused for a different project).
