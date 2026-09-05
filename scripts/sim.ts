@@ -16,6 +16,10 @@ import type { Building } from '../src/world/building';
 // Optional matchup override so the mirrored house direction can be sim-checked (e.g.
 // `HOUSE=harkonnen npm run sim`); undefined keeps today's default (Atreides player).
 const HOUSE = process.env.HOUSE as House | undefined;
+// Optional sandworm-count override for regression comparisons (e.g. `WORMS=0 npm run sim` to read
+// the pre-worm ladder); undefined keeps each mission's own `worms` setting (default 1).
+const WORMS = process.env.WORMS !== undefined ? Number(process.env.WORMS) : undefined;
+if (WORMS !== undefined && !Number.isFinite(WORMS)) throw new Error(`WORMS must be a number, got "${process.env.WORMS}"`);
 
 // ---- Scripted PLAYER bot ------------------------------------------------------------------
 // Mirrors EnemyAI: on a think interval it places ready buildings (spiraling from the yard),
@@ -249,6 +253,7 @@ function runMatch(missionIdx: number, difficulty: Difficulty, passive = false): 
 }
 
 function runConfig(config: MissionConfig, difficulty: Difficulty, passive = false): MatchResult {
+  if (WORMS !== undefined) config = { ...config, worms: WORMS };
   const world = new World(config, difficulty, HOUSE);
   const ai = new EnemyAI(world, config.aggression, config.aiPersonality);
   const bot: { update(dt: number): void } = passive ? new PassiveBot(world) : new PlayerBot(world);

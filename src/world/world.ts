@@ -21,6 +21,8 @@ import { findPath, nearestOpen } from '../core/astar';
 import type { TileXY } from '../core/astar';
 import type { BuildItem } from './player';
 import type { Order, HarvestPhase } from './unit';
+import { WormSystem } from './worm';
+import type { Worm, WormSnapshot } from './worm';
 
 export type Combatant = Unit | Building;
 
@@ -30,7 +32,7 @@ export interface Effect {
   ttl: number;
   max: number;
   size: number;
-  kind?: 'blast' | 'poof'; // blast = fiery (vehicles/buildings); poof = dust (infantry). default blast
+  kind?: 'blast' | 'poof' | 'spray'; // blast = fiery (vehicles/buildings); poof = dust (infantry). default blast
 }
 
 /** A one-shot sound request the controller drains each rendered frame (see Game). Kept as plain
@@ -70,6 +72,8 @@ export interface MissionConfig {
   units: { faction: Faction; defId: string; tx: number; ty: number }[];
   spiceFields: { tx: number; ty: number; r: number }[];
   cameraStart: { tx: number; ty: number };
+  /** Sandworm count roaming the map (default 1; 0 disables). Both sides face the same worms. */
+  worms?: number;
 }
 
 export type GameResult = 'playing' | 'won' | 'lost';
@@ -108,6 +112,7 @@ export interface WorldSnapshot {
   enemy: PlayerSnapshot;
   buildings: BuildingSnapshot[];
   units: UnitSnapshot[];
+  worms?: WormSnapshot; // additive (pre-worm saves lack it → worms respawn fresh on load)
 }
 
 /** What the player must do to win a mission. Default (unset) = 'destroyAll' (last-base-standing,
@@ -146,6 +151,14 @@ export class World {
   alertTime = -99;
   alertX = 0;
   alertY = 0;
+  // Most recent sandworm meal taken from the LOCAL faction — drives the controller's toast +
+  // (via the alert fields above) the minimap ping. Presentation only, never serialized.
+  wormAlertTime = -99;
+  wormVictim = '';
+  wormVictimCount = 0; // units taken in that same bite (one maw can swallow a clump)
+  /** Neutral sandworms — deterministic sim state (their PRNG + bodies live in the snapshot). */
+  readonly wormSys = new WormSystem((Math.random() * 4294967296) >>> 0);
+  get worms(): Worm[] { return this.wormSys.worms; }
 
   constructor(config: MissionConfig, difficulty: Difficulty = 'normal', playerHouse?: House) {
     this.config = config;
@@ -172,6 +185,9 @@ export class World {
       const unit = this.spawnUnit(def, u.faction, (u.tx + 0.5) * TILE, (u.ty + 0.5) * TILE);
       if (def.harvester) unit.order = { kind: 'harvest' };
     }
+
+    // Worms spawn after the bases exist so they can keep clear of them.
+    this.wormSys.spawn(this, config.worms ?? 1);
 
     if (!config.fog) this.fog.revealAll();
     else this.refreshFog();
@@ -212,6 +228,7 @@ export class World {
         spiceTile: u.spiceTile ? { ...u.spiceTile } : null,
         facing: u.facing, repathTimer: u.repathTimer, kills: u.kills,
       })),
+      worms: this.wormSys.serialize(),
     };
   }
 
@@ -273,6 +290,11 @@ export class World {
     this.popups.length = 0;
     this.audioEvents.length = 0;
     this.rebuildBlocked();
+
+    // Worms ride along in the snapshot (PRNG included, so the stream resumes exactly). A pre-worm
+    // save simply gets a fresh spawn — after the buildings + block grid, so it keeps clear of them.
+    if (s.worms) this.wormSys.deserialize(s.worms);
+    else this.wormSys.spawn(this, this.config.worms ?? 1);
   }
 
   // ---- queries -----------------------------------------------------------------------------
@@ -608,6 +630,17 @@ export class World {
     }
   }
 
+  /** Escort: shadow a friendly unit, engaging anything that comes near it, then fall back in.
+   *  Issued by right-clicking a friendly unit. Harvesters never escort (they keep harvesting). */
+  commandFollow(units: Unit[], leader: Unit): void {
+    for (const u of units) {
+      if (u === leader || u.def.harvester) continue;
+      u.order = { kind: 'follow', targetId: leader.id, targetKind: 'unit' };
+      u.clearPath();
+      u.repathTimer = 0;
+    }
+  }
+
   commandStop(units: Unit[]): void {
     for (const u of units) this.becomeIdle(u);
   }
@@ -666,6 +699,16 @@ export class World {
       && this.map.terrain[this.map.idx(tx, ty)] === Terrain.Spice;
     const harvesters = units.filter((u) => u.def.harvester);
     const others = units.filter((u) => !u.def.harvester);
+    // A friendly unit under the cursor (not one of the selected) → escort it. A harvest click
+    // (spice under the cursor with harvesters selected) keeps priority — the patch is usually
+    // covered by a harvester already working it.
+    const friend = this.unitAt(wx, wy, faction);
+    if (friend && !units.includes(friend) && !(onSpice && harvesters.length)) {
+      const escorts = others.filter((u) => u !== friend);
+      if (escorts.length) this.commandFollow(escorts, friend);
+      if (harvesters.length) this.commandMove(harvesters, wx, wy);
+      return;
+    }
     if (onSpice && harvesters.length) {
       for (const h of harvesters) {
         h.spiceTile = { tx, ty };
@@ -694,6 +737,7 @@ export class World {
     this.updateProduction(this.enemy, dt);
     this.updateUnits(dt);
     this.updateTurrets(dt);
+    this.wormSys.update(this, dt); // after units/turrets: guns that fired at enemies are on cooldown
     this.updateProjectiles(dt);
     this.updateEffects(dt);
     this.updatePopups(dt);
@@ -804,6 +848,30 @@ export class World {
       case 'hold':
         this.fireIfInRange(u);
         return;
+
+      case 'follow': {
+        const leader = this.findUnit(u.order.targetId!);
+        if (!leader || !leader.alive) { this.becomeIdle(u); return; }
+        // Escort duty: shoot what's in range without stopping; chase a threat only while it
+        // stays near the leader (never abandon the escort), then fall back in.
+        if (u.def.weapon && u.stance !== 'holdfire') {
+          const t = this.acquireTarget(u);
+          if (t) {
+            if (this.inWeaponRange(u, t)) this.tryFire(u, t);
+            else if (u.distanceTo(leader.x, leader.y) <= GUARD_LEASH * TILE) {
+              this.engage(u, t, dt); // chase, but never stray past the leash from the leader
+              return;
+            }
+          }
+        }
+        const gap = u.def.radius + leader.def.radius + TILE;
+        if (u.distanceTo(leader.x, leader.y) <= gap) { u.clearPath(); return; }
+        if (u.def.flying) { u.stepToward(leader.x, leader.y, dt); return; }
+        this.ensurePathTo(u, leader.tileX, leader.tileY);
+        if (u.path.length === 0) u.stepToward(leader.x, leader.y, dt);
+        else u.followPath(dt);
+        return;
+      }
 
       default: // idle — stance-driven autonomous behaviour
         this.autonomous(u, dt);
@@ -1008,8 +1076,27 @@ export class World {
   }
 
   /** Queue a sound cue for the controller to play (browser only — inert in the headless sim). */
-  private emit(name: string, x = 0, y = 0): void {
+  emit(name: string, x = 0, y = 0): void {
     if (IN_BROWSER) this.audioEvents.push({ name, x, y });
+  }
+
+  /** Owner-wide weapon-range multiplier (the worm system's escort guns honour the same upgrade). */
+  rangeMult(owner: Faction): number {
+    return this.player_(owner).upgradeMult('rangeMult');
+  }
+
+  /** A sandworm bit this unit: it dies on the spot (no wreck, no kill credit — the worm is nobody's).
+   *  The viewer whose unit was taken gets the under-attack ping + a toast via the alert fields. */
+  devour(u: Unit, worm: Worm): void {
+    u.hp = 0;
+    this.effects.push({ x: u.x, y: u.y, ttl: CORPSE_TTL, max: CORPSE_TTL, size: 20, kind: 'poof' });
+    this.emit('worm-eat', worm.x, worm.y);
+    if (u.owner === this.localFaction) {
+      this.alertTime = this.time; this.alertX = u.x; this.alertY = u.y;
+      this.wormVictimCount = this.wormAlertTime === this.time ? this.wormVictimCount + 1 : 1;
+      this.wormAlertTime = this.time;
+      this.wormVictim = u.def.name;
+    }
   }
 
   /** Apply a weapon's hit: armor-scaled damage to the target (+ splash), and a visual tracer.

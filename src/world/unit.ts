@@ -14,7 +14,7 @@ export function reserveUnitIds(maxId: number): void {
   if (maxId >= nextId) nextId = maxId + 1;
 }
 
-export type OrderKind = 'idle' | 'move' | 'attackMove' | 'attack' | 'hold' | 'harvest';
+export type OrderKind = 'idle' | 'move' | 'attackMove' | 'attack' | 'hold' | 'harvest' | 'follow';
 
 export type TargetKind = 'unit' | 'building';
 

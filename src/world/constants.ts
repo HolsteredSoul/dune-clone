@@ -62,3 +62,26 @@ export const REPAIR_COST_FACTOR = 0.45; // credits per restored HP, as a fractio
 
 // --- Fog of war ---
 export const FOG_REFRESH = 0.25;       // seconds between visibility recomputes
+
+// --- Sandworms (neutral hazards; deterministic, part of the sim — see world/worm.ts) ---
+// A worm hunts VIBRATION on open sand: moving vehicles/harvesters (and mining harvesters) draw it,
+// flyers and anything on Rock are immune (rocked building footprints count as Rock). Escort guns
+// and turrets auto-fire at a surfaced worm; soaking WORM_REPEL_DAMAGE drives it back under.
+export const WORM_ROAM_SPEED = 55;       // px/s cruising under the sand with no prey
+export const WORM_HUNT_SPEED = 100;      // px/s closing on prey (a harvester at 110 can outrun it if it reacts)
+export const WORM_SENSE_TILES = 14;      // tiles: vibration detection radius
+export const WORM_THINK = 0.5;           // s between prey re-evaluations
+export const WORM_HUNT_TIMEOUT = 22;     // s a single chase may last before the worm gives up
+export const WORM_STRIKE_DIST = 18;      // px: head-under-prey distance that triggers surfacing
+export const WORM_MAW_RADIUS = 30;       // px: every ground unit on sand within this is devoured at the bite
+export const WORM_SURFACE_TIME = 1.0;    // s rising before the bite lands (the reaction window)
+export const WORM_DEVOUR_TIME = 1.3;     // s the worm stays up chewing (still a target)
+export const WORM_SUBMERGE_TIME = 0.8;   // s sinking back under
+export const WORM_SATED_TIME = 45;       // s of calm roaming after a meal — the pacing lever
+export const WORM_MISS_TIME = 8;         // s of calm after an empty bite
+export const WORM_FLEE_TIME = 35;        // s of calm after being driven off by gunfire
+export const WORM_REPEL_DAMAGE = 110;    // damage (vs heavy armour) absorbed while up that drives it under
+                                         // (3 tanks or 3 rocket turrets in one volley cancel the bite)
+export const WORM_ROAM_TILES = 12;       // tiles: max distance of a random roam goal
+export const WORM_SPAWN_CLEAR = 10;      // tiles: min distance from any building at spawn
+export const WORM_RADIUS = 26;           // px: draw/hit radius of the surfaced head

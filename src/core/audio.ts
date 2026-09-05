@@ -13,7 +13,8 @@ export type SoundName =
   | 'select' | 'move' | 'place' | 'build-start' | 'build-ready' | 'unit-ready'
   | 'cancel' | 'upgrade'
   | 'fire-gun' | 'fire-cannon' | 'fire-rocket' | 'fire-shell'
-  | 'explosion' | 'explosion-big' | 'under-attack' | 'victory' | 'defeat';
+  | 'explosion' | 'explosion-big' | 'under-attack' | 'victory' | 'defeat'
+  | 'worm-sign' | 'worm-surface' | 'worm-eat';
 
 const STORAGE_KEY = 'dune_muted';
 
@@ -24,6 +25,7 @@ const THROTTLE: Partial<Record<string, number>> = {
   'fire-gun': 0.05, 'fire-cannon': 0.07, 'fire-rocket': 0.09, 'fire-shell': 0.09,
   explosion: 0.04, 'explosion-big': 0.05,
   'under-attack': 8,
+  'worm-sign': 6, 'worm-surface': 0.5, 'worm-eat': 0.3,
 };
 
 class AudioEngine {
@@ -206,6 +208,23 @@ class AudioEngine {
         this.noise(ctx, out, t, 0.46, 'lowpass', 1100, 90, 0.9, 0.32);
         this.tone(ctx, out, t, 130, 30, 0.46, 'sine', 0.34);
         return 0.46;
+
+      // ---- sandworms ----
+      case 'worm-sign': // a deep rumble rolling under the sand (non-spatial warning)
+        this.noise(ctx, out, t, 1.4, 'lowpass', 140, 60, 1.2, 0.30);
+        this.tone(ctx, out, t, 42, 36, 1.4, 'sine', 0.30);
+        return 1.4;
+      case 'worm-surface': // sand burst + a falling roar
+        this.noise(ctx, out, t, 0.25, 'bandpass', 900, 300, 0.8, 0.30);
+        this.noise(ctx, out, t, 0.9, 'lowpass', 700, 80, 1, 0.34, 0.1);
+        this.tone(ctx, out, t, 180, 45, 0.9, 'sawtooth', 0.22, 0.05);
+        this.tone(ctx, out, t, 90, 30, 0.9, 'sine', 0.30, 0.05);
+        return 1.0;
+      case 'worm-eat': // crunch + swallow thump
+        this.noise(ctx, out, t, 0.12, 'highpass', 1800, 900, 0.6, 0.26);
+        this.noise(ctx, out, t, 0.35, 'lowpass', 600, 100, 0.9, 0.30, 0.08);
+        this.tone(ctx, out, t, 120, 35, 0.4, 'sine', 0.32, 0.1);
+        return 0.5;
 
       // ---- alerts / stingers ----
       case 'under-attack':
