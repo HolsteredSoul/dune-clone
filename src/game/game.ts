@@ -15,6 +15,7 @@ import { BUILDINGS } from '../world/defs';
 import type { BuildingDef, Difficulty, House, Faction } from '../world/defs';
 import { TILE, SIDEBAR_W, SIM_HZ } from '../world/constants';
 import { MISSIONS, makeSkirmishConfig } from './missions';
+import { applyClickSelect, isDoubleClick } from './select';
 import { audio } from '../core/audio';
 import { Lobby } from '../net/lobby';
 import type { MatchSetup } from '../net/lobby';
@@ -77,6 +78,7 @@ export class Game {
   // Control groups: digit selects, Ctrl/Shift+digit assigns, double-tap a digit centers the camera.
   private readonly groups = new Map<number, number[]>();
   private lastGroupTap: { n: number; t: number } = { n: -1, t: 0 };
+  private lastUnitClick: { id: number; t: number } = { id: -1, t: 0 };
   // Transient on-screen confirmation (save/load feedback).
   private toastMsg = '';
   private toastTtl = 0;
@@ -116,6 +118,7 @@ export class Game {
     this.dragStart = null;
     this.groups.clear();
     this.lastGroupTap = { n: -1, t: 0 };
+    this.lastUnitClick = { id: -1, t: 0 };
   }
 
   private load(i: number): void {
@@ -325,6 +328,7 @@ export class Game {
     this.pendingAttackMove = false;
     this.dragging = false;
     this.dragStart = null;
+    this.lastUnitClick = { id: -1, t: 0 };
     this.overlay = 'none';
     this.toast('Game loaded');
   }
@@ -673,22 +677,23 @@ export class Game {
 
   private clickSelect(x: number, y: number): void {
     const wx = this.cam.x + x, wy = this.cam.y + y;
-    this.selected.clear();
+    const shift = this.input.isDown('ShiftLeft') || this.input.isDown('ShiftRight');
     const u = this.world.unitAt(wx, wy, this.localFaction);
-    if (u) {
-      this.selected.add(u.id);
-      this.selectedBuilding = null;
-      audio.play('select');
-      return;
-    }
-    const b = this.world.buildingAtTile(Math.floor(wx / TILE), Math.floor(wy / TILE));
-    this.selectedBuilding = b && b.owner === this.localFaction ? b : null;
-    if (this.selectedBuilding) audio.play('select');
+    const now = performance.now();
+    const doubleClick = !!u && isDoubleClick(this.lastUnitClick.id, this.lastUnitClick.t, u.id, now);
+    this.lastUnitClick = { id: u ? u.id : -1, t: now };
+    const sel = { selected: this.selected, selectedBuilding: this.selectedBuilding };
+    const changed = applyClickSelect(sel, this.world, wx, wy, this.localFaction, {
+      shift, doubleClick, view: this.cam,
+    });
+    this.selectedBuilding = sel.selectedBuilding;
+    if (changed) audio.play('select');
   }
 
   private boxSelect(x0: number, y0: number, x1: number, y1: number): void {
     this.selected.clear();
     this.selectedBuilding = null;
+    this.lastUnitClick = { id: -1, t: 0 };
     const units = this.world.unitsInRect(
       this.cam.x + x0, this.cam.y + y0, this.cam.x + x1, this.cam.y + y1, this.localFaction);
     for (const u of units) this.selected.add(u.id);

@@ -19,6 +19,7 @@ export type SkirmishPick =
   | { house: House } | { difficulty: Difficulty } | { ai: string } | { credits: number }
   | { action: 'begin' | 'back' };
 import { SIDEBAR_W, TILE, MAP_W, MAP_H } from '../world/constants';
+import { terrainFillStyle } from './visuals';
 
 const UNIT_ICON_ORDER = ['infantry', 'rocket', 'scout', 'harvester', 'tank', 'artillery', 'aircraft'];
 const COMMANDS = [
@@ -337,7 +338,7 @@ export class Ui {
         if (!world.fog.explored(tx, ty)) continue;
         const i = map.idx(tx, ty);
         const t = map.terrain[i];
-        ctx.fillStyle = t === 1 ? '#6b5d44' : t === 2 ? '#d8742a' : '#b89550';
+        ctx.fillStyle = terrainFillStyle(t, tx, ty, map.spice[i]);
         ctx.fillRect(x + tx * sx, y + ty * sy, Math.ceil(sx), Math.ceil(sy));
       }
     }

@@ -23,12 +23,31 @@ The bar for "real": a playable mission where the full loop — harvest → build
 fight → win/lose — works without breaking.
 
 ## Status (the cross-session pointer — read this first, update at session end)
-- **▶ Current phase:** REPLAYABILITY & DEPTH CYCLE (M28–M33) — **ALL 6 ITEMS COMPLETE + committed**
+- **▶ Current phase:** PLAYABILITY / READABILITY PASS — **COMPLETE** (distinct unit silhouettes +
+  house-painted hulls, richer sand/rock/spice, shift-toggle + double-click same-type select,
+  selected-unit destination markers). Renderer + controller only; no sim/net/balance change.
+  Gated by `scripts/playability-check.ts` + `scripts/visual-check.ts` (drive shipped helpers + a
+  real `World`), 2× `npm run build`, and 2× live Playwright loads of `dist/` (canvas 1280×800
+  matching CSS, painted fraction 1.0, spice orange / rock darker than sand / Atreides-blue vs
+  Harkonnen-red body pixels).
+- **Last done (newest): playability + battlefield readability.** Units are no longer a shared
+  rotated triangle: each `def.id` has its own silhouette recipe in `src/render/visuals.ts`
+  (trooper oval, rocketeer + pack, buggy + wheels, harvester hopper, tank turret, artillery
+  barrel, ornithopter wings). Hull fill is house color (Atreides blue / Harkonnen red) with the
+  existing bright green/red owner stroke + selection ring. Terrain uses a hash palette (not
+  `(tx+ty)%2`) plus intra-tile grain / rock facets / spice bloom and neighbor seams.
+  Shift-click toggles a unit in the selection; double-click selects all on-screen friendlies of
+  that type (`src/game/select.ts`, used by `Game.clickSelect`). Selected units with a
+  move/attack/harvest order draw a dashed line + destination X (fog-gated like other overlays).
+  Files: `src/render/{visuals,renderer,ui}.ts`, `src/game/{select,game}.ts`,
+  `scripts/{playability,visual}-check.ts`. **No `src/world/`, `src/net/`, `server/`, or
+  `scripts/sim.ts` edits — sim/nettest not run.**
+- **Prior:** REPLAYABILITY & DEPTH CYCLE (M28–M33) — **ALL 6 ITEMS COMPLETE + committed**
   (skirmish map variation · skirmish setup options · unit veterancy · campaign missions 5-6 ·
   rock terrain cover · house-exclusive upgrade nodes). Full cycle adversarially reviewed
   (fresh-context opus pass over `a9360c8..HEAD`: **zero high/medium findings**, all load-bearing
   claims script-confirmed). Optimise pass: nothing needed (no hot-loop additions; bundle 128→136 kB).
-- **Last done (newest): the M28–M33 improvement cycle** (Review → Plan → Implement → QA → Optimise;
+- **Prior (detail): the M28–M33 improvement cycle** (Review → Plan → Implement → QA → Optimise;
   one commit per item, each gated by build + 30-run sim where sim-affecting + nettest where world/
   sim files changed + live `window.game` E2E):
   • **M28 — Skirmish map variation.** `makeSkirmishConfig(personality, variant, credits)`: each SP
@@ -419,9 +438,9 @@ fight → win/lose — works without breaking.
   (Depleted Rounds / Composite Armor / Turbo Drives / Salvage Logistics) hosted at the Radar, and
   the enemy AI now *gradually* fields Rockets/Scouts and buys one upgrade. Re-tuned the difficulty
   table + per-mission economy to restore a healthy ladder. (Full detail in the session log.)
-- **Next action (start here next session):** M13–M33 are all **done, committed + live** — incl. the
-  full replayability/depth cycle (skirmish map variation + setup options, veterancy, 6-mission
-  campaign, rock cover, house-exclusive upgrades). Candidate next items (pick by appetite):
+- **Next action (start here next session):** M13–M33 plus the **playability/readability pass**
+  (silhouettes, terrain grain, shift/double-click select, order markers) are **done**. Candidate
+  next items (pick by appetite):
   • **Distinct rosters / superweapons per house** (the flagship "Dune feel" upgrade on the M21/M33
     house foundation — content + chaotic balance, its own session).
   • **Per-mission AI personality assignment** for the campaign (system shipped in M16; needs a
@@ -867,6 +886,14 @@ which is the unpredictable wildcard.
   Revisit if/when bumping Vite intentionally.
 
 ## Session log (terse; newest on top)
+- **2026-09-05** — **Playability / readability pass.** Distinct per-type silhouettes + house hull
+  paint, hash-varied sand/rock/spice with intra-tile detail, shift-toggle + double-click
+  same-type select, destination markers for selected orders. Extracted testable helpers
+  (`visuals.ts`, `select.ts`) so node checks drive the shipped functions against a real World.
+  Verified: both checks ALL PASS; 2× clean `npm run build`; 2× Playwright loads of `dist/`
+  (1280×800 canvas = CSS size, fully painted, no game errors); pixel samples confirm spice
+  orange-family, rock darker than sand, player-blue vs enemy-red bodies, infantry vs harvester
+  not the same triangle. No sim/net files touched.
 - **2026-06-18** — **M27: Tiered upgrade tree (strategic-depth engagement, Phase 2 of 2).** On the
   Phase-1 (M26) AI baseline. Built per the plan: `defs.ts` data model (widened `UpgradeEffect`,
   `requiresUpgrade`/`tier`, 12 upgrades keeping the 4 legacy ids, `UPGRADES_BY_TIER`) → `world.ts` apply

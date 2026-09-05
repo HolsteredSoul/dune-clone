@@ -5,9 +5,11 @@ import type { Camera } from '../core/camera';
 import type { World } from '../world/world';
 import type { Building } from '../world/building';
 import type { Unit } from '../world/unit';
-import { Terrain } from '../world/tilemap';
-import { TILE, HIT_FLASH_TIME, POPUP_RISE } from '../world/constants';
+import { TILE, HIT_FLASH_TIME, POPUP_RISE, HARVESTER_CAPACITY } from '../world/constants';
 import type { BuildingDef, Faction } from '../world/defs';
+import {
+  PLAYER_COLOR, ENEMY_COLOR, ownerAccent, ownerBodyFill, paintTerrainTile, paintUnitBody, unitShape,
+} from './visuals';
 
 export interface ViewState {
   selected: Set<number>;
@@ -17,12 +19,8 @@ export interface ViewState {
   dragRect: { x0: number; y0: number; x1: number; y1: number } | null;
 }
 
-const PLAYER = '#46d46e';
-const ENEMY = '#e0524a';
-const C = {
-  sand: '#c2a058', sandAlt: '#b89550', rock: '#6b5d44',
-  spice: '#d8742a', spiceRich: '#a8481a',
-};
+const PLAYER = PLAYER_COLOR;
+const ENEMY = ENEMY_COLOR;
 
 // Building sprites: drop a `building-<id>.png` (top-down, sized footprint×TILE, transparent
 // background — see assets/sprites/*.md specs) into assets/sprites/ and it is auto-discovered
@@ -83,6 +81,7 @@ export class Renderer {
     this.drawTerrain(world, cam);
     for (const b of world.buildings) this.drawBuilding(b, world, cam, view);
     for (const u of world.units) this.drawUnit(u, world, cam, view);
+    this.drawOrderMarkers(world, cam, view);
     if (view.selectedBuilding) this.drawRally(view.selectedBuilding, cam);
     for (const p of world.projectiles) this.drawProjectile(p, cam);
     for (const e of world.effects) this.drawEffect(e, cam);
@@ -126,12 +125,12 @@ export class Renderer {
         }
         const i = map.idx(tx, ty);
         const t = map.terrain[i];
-        let color: string;
-        if (t === Terrain.Rock) color = C.rock;
-        else if (t === Terrain.Spice) color = map.spice[i] > 500 ? C.spiceRich : C.spice;
-        else color = (tx + ty) % 2 === 0 ? C.sand : C.sandAlt;
-        ctx.fillStyle = color;
-        ctx.fillRect(sx, sy, TILE, TILE);
+        paintTerrainTile(ctx, t, tx, ty, map.spice[i], sx, sy, TILE, {
+          n: ty > 0 ? map.terrain[map.idx(tx, ty - 1)] : t,
+          s: ty < map.h - 1 ? map.terrain[map.idx(tx, ty + 1)] : t,
+          w: tx > 0 ? map.terrain[map.idx(tx - 1, ty)] : t,
+          e: tx < map.w - 1 ? map.terrain[map.idx(tx + 1, ty)] : t,
+        });
       }
     }
   }
@@ -242,7 +241,9 @@ export class Renderer {
     const sx = u.x - cam.x;
     const sy = u.y - cam.y;
     const r = u.def.radius;
-    const edge = u.owner === this.localFaction ? PLAYER : ENEMY;
+    const edge = ownerAccent(u.owner, this.localFaction);
+    const house = world.player_(u.owner).house;
+    const body = ownerBodyFill(u.owner, house);
 
     if (u.def.flying) { // shadow
       ctx.fillStyle = 'rgba(0,0,0,0.3)';
@@ -261,34 +262,11 @@ export class Renderer {
 
     ctx.save();
     ctx.translate(sx, sy);
-    if (u.def.harvester) {
-      ctx.fillStyle = u.def.color;
-      ctx.fillRect(-r, -r * 0.8, r * 2, r * 1.6);
-      const fill = u.load / 700 * (r * 1.6);
-      ctx.fillStyle = u.def.trim;
-      ctx.fillRect(-r, r * 0.8 - fill, r * 2, fill);
-      ctx.strokeStyle = '#2a2010';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(-r, -r * 0.8, r * 2, r * 1.6);
-    } else {
-      ctx.rotate(u.facing);
-      ctx.fillStyle = u.def.color;
-      ctx.beginPath();
-      ctx.moveTo(r, 0);
-      ctx.lineTo(-r * 0.8, -r * 0.8);
-      ctx.lineTo(-r * 0.8, r * 0.8);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = u.def.trim;
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      if (u.muzzleFlash > 0) {
-        ctx.fillStyle = 'rgba(255,235,150,0.9)';
-        ctx.beginPath();
-        ctx.arc(r + 2, 0, 3, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
+    ctx.rotate(u.facing);
+    paintUnitBody(ctx, unitShape(u.def.id), r, body, edge, {
+      loadFrac: u.def.harvester ? u.load / HARVESTER_CAPACITY : 0,
+      muzzle: u.muzzleFlash > 0,
+    });
     ctx.restore();
 
     const flash = Math.max(0, (u.hitFlash - world.time) / HIT_FLASH_TIME);
@@ -299,9 +277,9 @@ export class Renderer {
       ctx.fill();
     }
 
-    // tiny owner pip
+    // owner pip (kept as a bright local/enemy cue on top of the house-painted body)
     ctx.fillStyle = edge;
-    ctx.fillRect(sx - 1, sy - r - 4, 2, 2);
+    ctx.fillRect(sx - 2, sy - r - 5, 4, 3);
 
     if (u.hp < u.maxHp) this.hpBar(sx - r, sy - r - 5, r * 2, u.hp / u.maxHp);
 
@@ -431,6 +409,78 @@ export class Renderer {
     }
     ctx.globalAlpha = 1;
     ctx.textAlign = 'left';
+  }
+
+  /** Destination marker + a thin path tick for selected units that currently have an order. */
+  private drawOrderMarkers(world: World, cam: Camera, view: ViewState): void {
+    if (view.selected.size === 0) return;
+    const ctx = this.ctx;
+    for (const id of view.selected) {
+      const u = world.findUnit(id);
+      if (!u || !u.alive) continue;
+      if (!this.visibleEntity(world, u.owner, u.x, u.y)) continue;
+      const dest = this.orderDest(u, world);
+      if (!dest) continue;
+      const fromX = u.x - cam.x, fromY = u.y - cam.y;
+      const toX = dest.x - cam.x, toY = dest.y - cam.y;
+
+      ctx.strokeStyle = 'rgba(70,212,110,0.45)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(fromX, fromY);
+      ctx.lineTo(toX, toY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      if (u.path.length > 1) {
+        ctx.fillStyle = 'rgba(70,212,110,0.55)';
+        const step = Math.max(1, Math.ceil(u.path.length / 6));
+        for (let i = 0; i < u.path.length; i += step) {
+          const p = u.path[i];
+          ctx.fillRect((p.tx + 0.5) * TILE - cam.x - 1.5, (p.ty + 0.5) * TILE - cam.y - 1.5, 3, 3);
+        }
+      }
+
+      ctx.strokeStyle = PLAYER;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(toX - 4, toY);
+      ctx.lineTo(toX + 4, toY);
+      ctx.moveTo(toX, toY - 4);
+      ctx.lineTo(toX, toY + 4);
+      ctx.stroke();
+    }
+  }
+
+  private orderDest(u: Unit, world: World): { x: number; y: number } | null {
+    const o = u.order;
+    if ((o.kind === 'move' || o.kind === 'attackMove') && o.gx !== undefined && o.gy !== undefined) {
+      return { x: o.gx, y: o.gy };
+    }
+    if (o.kind === 'attack' && o.targetId !== undefined) {
+      if (o.targetKind === 'building') {
+        const b = world.findBuilding(o.targetId);
+        if (b) return { x: b.centerX, y: b.centerY };
+      } else {
+        const t = world.findUnit(o.targetId);
+        if (t && t.alive) return { x: t.x, y: t.y };
+      }
+    }
+    if (o.kind === 'harvest') {
+      if ((u.harvestPhase === 'toRefinery' || u.harvestPhase === 'unloading') && u.path.length) {
+        const p = u.path[u.path.length - 1];
+        return { x: (p.tx + 0.5) * TILE, y: (p.ty + 0.5) * TILE };
+      }
+      if (u.spiceTile) {
+        return { x: (u.spiceTile.tx + 0.5) * TILE, y: (u.spiceTile.ty + 0.5) * TILE };
+      }
+    }
+    if (u.path.length) {
+      const p = u.path[u.path.length - 1];
+      return { x: (p.tx + 0.5) * TILE, y: (p.ty + 0.5) * TILE };
+    }
+    return null;
   }
 
   private drawRally(b: Building, cam: Camera): void {

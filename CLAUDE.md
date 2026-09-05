@@ -55,7 +55,7 @@ TypeScript + HTML5 Canvas, bundled with Vite. No game engine.
 | MP relay server (standalone Node) | `server/relay.ts` (+ `scripts/nettest.ts` cross-check) |
 
 ## Controls
-Left-drag/click select · right-click move/attack/harvest · sidebar builds structures (click,
+Left-drag/click select · **Shift-click** add/toggle a unit · **double-click** select all on-screen units of that type · right-click move/attack/harvest · sidebar builds structures (click,
 then click map to place) & queues units (**right-click a sidebar icon to cancel one — refunds**;
 multiple Barracks/War Factories build in parallel) · minimap to jump · **arrows/edge/minimap pan** (WASD
 freed for commands). Unit commands (selection): `A` attack-move · `S` stop · `H` hold · `G`
